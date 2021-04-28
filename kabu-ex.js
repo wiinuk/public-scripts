@@ -168,6 +168,18 @@
 
         return [R, G, B]
     }
+    const ready = (/** @type {() => void} */ onDocumentLoaded) => {
+        if (document.readyState === "complete") {
+            onDocumentLoaded()
+        }
+        else {
+            document.addEventListener("readystatechange", () => {
+                if (document.readyState === "complete") {
+                    onDocumentLoaded()
+                }
+            })
+        }
+    }
 
     /**
      * @typedef {"Wave"} WaveType 波型
@@ -226,7 +238,7 @@
     /** スクロール位置の永続化 */
     const setupScrollPositionSerializer = () => {
         const SCROLL_KEY = "__SCROLL"
-        window.addEventListener("load", () => {
+        ready(() => {
             const top = Number(JSON.parse(localStorage.getItem(SCROLL_KEY) || String(0)))
             window.scrollTo({ top })
         })
@@ -451,7 +463,7 @@
             }))
         }
 
-        window.addEventListener("load", async () => {
+        ready(async () => {
 
             // この要素の後にグラフを挿入する
             const sibling = document.querySelector("#filter") ?? error`#filter`;
