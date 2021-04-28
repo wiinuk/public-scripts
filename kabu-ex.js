@@ -5,7 +5,13 @@
     /**
      * @template {number} Length
      * @template T
-     * @typedef {number extends 0 ? never[] : { 0: T, length: Length } & readonly T[]} FixedSizeArray
+     * @template {[...any[]]} Tuple
+     * @typedef {Length extends Tuple["length"] ? Tuple : MakeFixedSizeArray<Length, T, [T, ...Tuple]>} MakeFixedSizeArray
+     */
+    /**
+     * @template {number} Length
+     * @template T
+     * @typedef {MakeFixedSizeArray<Length, T, []>} FixedSizeArray
      */
 
     /**
@@ -21,8 +27,12 @@
         }
         throw new Error(`length: ${length}, array.length: ${array.length}, array: ${JSON.stringify(array)}`)
     }
-
-    const timeout = (/** @type {number} */ ms) => new Promise(resolve => setTimeout(resolve, ms))
+    /**
+     * @template T
+     * @param {[T, ...T[]]} tuple
+     * @returns {T}
+     */
+    const fixedSizeArrayLast = tuple => /** @type {T} */(tuple[tuple.length - 1])
 
     /**
      * @param {TemplateStringsArray} message
@@ -31,18 +41,6 @@
     const error = (message, ...substitutions) => {
         throw new Error(String.raw(message, ...substitutions))
     }
-    /**
-     * @template T
-     * @typedef Vector2
-     * @property {T} x
-     * @property {T} y
-     */
-    /**
-     * @template T
-     * @param {T} x
-     * @param {T} y
-     */
-    const vector2 = (x, y) => ({x, y})
 
     /**
      * @typedef BoxCreateOptions
@@ -139,6 +137,38 @@
         }, initialValue)
 
     const textMetricsHeight = (/** @type {TextMetrics} */ metrics) => metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
+
+    /**
+     * @param {number} H
+     * @param {number} S
+     * @param {number} V
+     */
+    const hsvToRgb = (H, S, V) => {
+        const
+            C = V * S,
+            Hp = H / 60,
+            X = C * (1 - Math.abs(Hp % 2 - 1))
+
+        let R = 0, G = 0, B = 0
+        if (0 <= Hp && Hp < 1) { R = C; G = X; B = 0 }
+        if (1 <= Hp && Hp < 2) { R = X; G = C; B = 0 }
+        if (2 <= Hp && Hp < 3) { R = 0; G = C; B = X }
+        if (3 <= Hp && Hp < 4) { R = 0; G = X; B = C }
+        if (4 <= Hp && Hp < 5) { R = X; G = 0; B = C }
+        if (5 <= Hp && Hp < 6) { R = C; G = 0; B = X }
+
+        const m = V - C
+        R += m
+        G += m
+        B += m
+
+        R = (R * 255) | 0
+        G = (G * 255) | 0
+        B = (B * 255) | 0
+
+        return [R, G, B]
+    }
+
     /**
      * @typedef {"Wave"} WaveType 波型
      * @typedef {"JumpSmall"} JumpSmallType 跳ね小型
@@ -185,7 +215,9 @@
                     probability: Number(/^\s*(.+)%\s*$/.exec(probability.innerText)?.[1] ?? error`probability`) * 0.01,
                     values: asFixedSizeArray(12, values.map(values => {
                         const [, min = error`values.min`, , max = min] = /^\s*(\d+)(~(\d+))?\s*$/.exec(values.innerText) ?? error`values`
-                        return [Number(min), Number(max)]
+                        /** @type {[min: number, max: number]} */
+                        const result = [Number(min), Number(max)]
+                        return result
                     }))
                 }
                 return result
@@ -209,7 +241,7 @@
             const pictureFrame = document.createElement("div")
             const style = pictureFrame.style
             style.width = "100%"
-            style.height = "16em"
+            style.height = "32em"
             style.marginTop = style.marginBottom = "2%"
 
             const canvas = document.createElement("canvas")
@@ -250,6 +282,7 @@
 
             /** グラフの元データ */
             const predications = collectWeeklyPredications(output)
+
             /** X軸の目盛り一覧 */
             const scalesX = Array
                 .from("月火水木金土")
@@ -261,10 +294,10 @@
                 getMaxValue(0, p.values, ([min, max]) => Math.max(min, max))
             )
             /** Y軸の最大の目盛りの値 */
-            const maxScaleY = getMaxAxis(maxValue)
-            const scaleY = maxScaleY / 4
+            const maxScaleYValue = getMaxAxis(maxValue)
+            const scaleY = maxScaleYValue / 4
             /** Y軸の目盛り一覧 ( 最少 ～ 最大 ) */
-            const scalesY = [0, scaleY, scaleY * 2, scaleY * 3, maxScaleY]
+            const scalesY = [0, scaleY, scaleY * 2, scaleY * 3, maxScaleYValue]
                 .map(value => {
                     const text = String(value)
                     const label = createLabel(text)
@@ -295,13 +328,13 @@
                 getMaxValue(0, scalesX, s => s.label.metrics.width / 2)
             )
             // Y軸ラベルの最大文字高さだけマージンを取る
-            const [yLabelMargin, restCanvas1] = restCanvas0.splitTop(
+            const [_yLabelMargin, restCanvas1] = restCanvas0.splitTop(
                 getMaxValue(0, scalesY, s => textMetricsHeight(s.label.metrics))
             )
             const [restCanvas2, xLabelArea0] = restCanvas1.splitBottom(
                 maxXLabelHeight + canvasBox.height * 0.05
             )
-            const yLabelAreaPadding = canvasBox.width * 0.02
+            const yLabelAreaPadding = xLabelMargin.width
             const [yLabelArea, graphArea] = restCanvas2.splitLeft(maxYLabelWidth + yLabelAreaPadding)
             const [, xLabelArea] = xLabelArea0.splitLeft(yLabelArea.width)
 
@@ -340,12 +373,71 @@
             cc.textAlign = "center"
             cc.textBaseline = "bottom"
             scalesX.forEach(({ label }, index) => {
-                const x = yLabelArea.width + (index * (xLabelArea.width / (scalesX.length - 1)))
+                const x = xLabelArea.x + (index * (xLabelArea.width / (scalesX.length - 1)))
                 const y = canvasBox.height
                 cc.font = label.font
                 cc.fillText(label.text, x, y)
             })
 
+            // グラフを描画
+            /**
+             *
+             * @param {WeeklyPredictions} ps
+             * @param {number} h
+             * @param {boolean} [fillMode]
+             */
+            const drawPredicationLine = (ps, h, fillMode = false) => {
+                const { values, probability } = ps
+
+                /**
+                 * @param {number} value
+                 * @param {number} index
+                 * @returns {[x: number, y: number]}
+                 */
+                 const getPosition = (value, index) => {
+                    const x = graphArea.x + index * (graphArea.width / (values.length - 1))
+                    const y = graphArea.y + graphArea.height - (
+                        graphArea.height * (value / maxScaleYValue)
+                    )
+                    return [x, y]
+                }
+                const [, max0] = values[0]
+                const [r, g, b] = hsvToRgb(h, 1, 1)
+                cc.lineWidth = 1
+                cc.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.2)`
+                cc.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`
+                cc.beginPath()
+                cc.moveTo(...getPosition(max0, 0))
+
+                values.forEach(([, max], index) => {
+                    cc.lineTo(...getPosition(max, index))
+                })
+
+                const [minLast, ] = fixedSizeArrayLast(values)
+                const pos = getPosition(minLast, values.length - 1)
+                if (fillMode) {
+                    cc.lineTo(...pos)
+                }
+                else {
+                    cc.moveTo(...pos)
+                }
+
+                values.concat().reverse().forEach(([min, ], index, values) => {
+                    cc.lineTo(...getPosition(min, values.length - index - 1))
+                })
+
+                if (fillMode) {
+                    cc.fill()
+                }
+                else {
+                    cc.stroke()
+                }
+            }
+            predications.forEach((ps, index) => {
+                const h = (index / predications.length) * 360
+                drawPredicationLine(ps, h)
+                drawPredicationLine(ps, h, true)
+            })
 
             console.log(JSON.stringify({
                 // maxValue,
