@@ -78,6 +78,51 @@
             const { x, y, width, height } = options
             return new this(x, y, width, height)
         }
+
+        /**
+         * この Box を上と下に分割する。
+         * @param {number} topHeight 上の Box の高さ
+         * @returns {[top: Box, bottom: Box]}
+         */
+        splitTop(topHeight) {
+            return [
+                new Box(this._x, this._y, this._width, topHeight),
+                new Box(this._x, this._y + topHeight, this._width, this._height - topHeight)
+            ]
+        }
+        /**
+         * この Box を上と下に分割する。
+         * @param {number} bottomHeight 下の Box の高さ
+         * @returns {[top: Box, bottom: Box]}
+         */
+        splitBottom(bottomHeight) {
+            return [
+                new Box(this._x, this._y, this._width, this._height - bottomHeight),
+                new Box(this._x, this._y + (this._height - bottomHeight), this._width, bottomHeight)
+            ]
+        }
+        /**
+         * この Box を左と右に分割する
+         * @param {number} leftWidth 左の Box の幅
+         * @returns {[left: Box, right: Box]}
+         */
+        splitLeft(leftWidth) {
+            return [
+                new Box(this._x, this._y, leftWidth, this._height),
+                new Box(this._x + leftWidth, this._y, this._width - leftWidth, this._height)
+            ]
+        }
+        /**
+         * この Box を左と右に分割する
+         * @param {number} rightWidth 右の Box の幅
+         * @returns {[left: Box, right: Box]}
+         */
+        splitRight(rightWidth) {
+            return [
+                new Box(this._x, this._y, this._width - rightWidth, this._height),
+                new Box(this._x + (this._width - rightWidth), this._y, rightWidth, this._height)
+            ]
+        }
     }
     /**
      *
@@ -181,14 +226,6 @@
             const scale = Math.pow(10, Math.floor(Math.log10(Math.abs(maxValue))))
             return Math.ceil(maxValue / scale) * scale
         }
-        console.assert(getMaxAxis(20) === 20)
-        console.assert(getMaxAxis(19) === 20)
-        console.assert(getMaxAxis(11) === 20)
-        console.assert(getMaxAxis(10) === 10)
-        console.assert(getMaxAxis(200) === 200)
-        console.assert(getMaxAxis(199) === 200)
-        console.assert(getMaxAxis(101) === 200)
-        console.assert(getMaxAxis(100) === 100)
 
         const createLabel = (/** @type {string} */ text) => {
             const font = cc.font = "0.8rem 'YuGothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', sans-serif"
@@ -241,93 +278,47 @@
             const maxXLabelHeight = getMaxValue(0, scalesX, s => textMetricsHeight(s.label.metrics))
 
             //  [canvas]
-            //  +-----------------------------------+
-            //  |yLabelMargin                       |
-            //  +-----------+-----------------------+
-            //  |yLabelArea | graphArea             |
-            //  |           |                       |
-            //  |           |                       |
-            //  |           |                       |
-            //  |           |                       |
-            //  |           |                       |
-            //  |           |                       |
-            //  +-----------+-----------------------+
-            //  |           | xLabelArea            |
-            //  +-----------+-----------------------+
-            //
-            //  [yLabelArea]
-            //  +        100+
-            //
-            //            75
-            //
-            //            50
-            //
-            //            25
-            //
-            //  +          0+
-            //
-            //  [graphArea]
-            //              +-----------------------+
-            //
-            //              -------------------------
-            //
-            //              -------------------------
-            //
-            //              -------------------------
-            //
-            //              +-----------------------+
-            //
-            // [xLabelArea]
-            //              +                       +
-            //              A  B  C  D  E  F  G  H  I
-            //              +                       +
-            const yLabelMargin = {
-                box: Box.create({
-                    x: 0, y: 0,
-                    width: canvasBox.width,
+            //  +-----------------------------------+-----------+
+            //  |yLabelMargin                       |xLabel-    |
+            //  +-----------+-----------------------+Margin     |
+            //  |yLabelArea | graphArea             |           |
+            //  |           |                       |           |
+            //  |           |                       |           |
+            //  |           |                       |           |
+            //  |           |                       |           |
+            //  |           |                       |           |
+            //  |           |                       |           |
+            //  +-----------+-----------------------+           |
+            //  |           | xLabelArea            |           |
+            //  +-----------+-----------------------+-----------+
+            const [restCanvas0, xLabelMargin] = canvasBox.splitRight(
+                getMaxValue(0, scalesX, s => s.label.metrics.width / 2)
+            )
+            // Y軸ラベルの最大文字高さだけマージンを取る
+            const [yLabelMargin, restCanvas1] = restCanvas0.splitTop(
+                getMaxValue(0, scalesY, s => textMetricsHeight(s.label.metrics))
+            )
+            const [restCanvas2, xLabelArea0] = restCanvas1.splitBottom(
+                maxXLabelHeight + canvasBox.height * 0.05
+            )
+            const yLabelAreaPadding = canvasBox.width * 0.02
+            const [yLabelArea, graphArea] = restCanvas2.splitLeft(maxYLabelWidth + yLabelAreaPadding)
+            const [, xLabelArea] = xLabelArea0.splitLeft(yLabelArea.width)
 
-                    // Y軸ラベルの最大文字高さだけマージンを取る
-                    height: getMaxValue(0, scalesY, s => textMetricsHeight(s.label.metrics))
-                })
-            }
-            const xLabelArea = {
-                box: Box.create({
-                    x: maxYLabelWidth,
-                    y: canvasBox.height - maxXLabelHeight,
-                    width: canvasBox.width - maxYLabelWidth,
-
-                    height: maxXLabelHeight + canvasBox.height * 0.05
-                })
-            }
-            const yLabelArea = {
-                box: Box.create({
-                    x: 0,
-                    y: yLabelMargin.box.height,
-                    width: maxYLabelWidth,
-                    height: canvasBox.height - yLabelMargin.box.height - xLabelArea.box.height
-                })
-            }
-            const graphArea = {
-                box: Box.create({
-                    x: yLabelArea.box.width,
-                    y: yLabelMargin.box.height,
-                    width: canvasBox.width - yLabelArea.box.width,
-                    height: canvasBox.height - yLabelMargin.box.height - xLabelArea.box.height
-                })
-            }
             const getYLabelLineY = (/** @type {number} */ index) =>
-                yLabelArea.box.y + (yLabelArea.box.height - index * (yLabelArea.box.height / (scalesY.length - 1)))
+                yLabelArea.y + (yLabelArea.height - index * (yLabelArea.height / (scalesY.length - 1)))
 
             // Yラベルを描画
             cc.fillStyle = "gray"
             cc.textAlign = "right"
             cc.textBaseline = "middle"
             scalesY.forEach(({ label }, index) => {
-                const x = yLabelArea.box.width
+                const x = yLabelArea.width - yLabelAreaPadding
                 const y = getYLabelLineY(index)
                 cc.font = label.font
                 cc.fillText(label.text, x, y)
             })
+
             // Y補助線を描画
             cc.lineWidth = 1
             scalesY.forEach((_, index) => {
@@ -337,18 +328,19 @@
                 else {
                     cc.strokeStyle = "rgba(0, 0, 0, 0.2)"
                 }
-                const x = yLabelArea.box.width | 0
-                const y = getYLabelLineY(index) | 0
+                const x = yLabelArea.width - yLabelAreaPadding
+                const y = getYLabelLineY(index)
                 cc.beginPath()
-                cc.moveTo(x, y)
-                cc.lineTo(canvasBox.width | 0, y)
+                cc.moveTo(x | 0, y | 0)
+                cc.lineTo(canvasBox.width | 0, y | 0)
                 cc.stroke()
             })
+
             // Xラベルを描画
             cc.textAlign = "center"
             cc.textBaseline = "bottom"
             scalesX.forEach(({ label }, index) => {
-                const x = yLabelArea.box.width + (index * (xLabelArea.box.width / (scalesX.length - 1)))
+                const x = yLabelArea.width + (index * (xLabelArea.width / (scalesX.length - 1)))
                 const y = canvasBox.height
                 cc.font = label.font
                 cc.fillText(label.text, x, y)
