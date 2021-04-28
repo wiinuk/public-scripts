@@ -1,0 +1,21 @@
+{
+  "name": "public-scripts",
+  "version": "0.0.1",
+  "description": "",
+  "main": "",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wiinuk/public-scripts.git"
+  },
+  "author": "wiinuk",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/wiinuk/public-scripts/issues"
+  },
+  "homepage": "https://github.com/wiinuk/public-scripts#readme",
+  "devDependencies": {
+    "browser-sync": "^2.26.14",
+    "typescript": "^4.2.4"
+  }
+}
