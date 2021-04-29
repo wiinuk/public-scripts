@@ -2,65 +2,44 @@
 //spell-checker: ignore Segoe Helvetica
 
 (() => {
-    "use strict";
+    type MakeFixedSizeArray<
+        Length extends number,
+        T,
+        Tuple extends [...any[]]
+    > = Length extends Tuple["length"] ? Tuple : MakeFixedSizeArray<Length, T, [T, ...Tuple]>
 
-    /**
-     * @template {number} Length
-     * @template T
-     * @template {[...any[]]} Tuple
-     * @typedef {Length extends Tuple["length"] ? Tuple : MakeFixedSizeArray<Length, T, [T, ...Tuple]>} MakeFixedSizeArray
-     */
-    /**
-     * @template {number} Length
-     * @template T
-     * @typedef {MakeFixedSizeArray<Length, T, []>} FixedSizeArray
-     */
+    type FixedSizeArray<
+        Length extends number,
+        T
+    > = MakeFixedSizeArray<Length, T, []>
 
-    /**
-     * @template {number} N
-     * @template T
-     * @param {N} length
-     * @param {T[]} array
-     * @returns {FixedSizeArray<N, T>}
-     */
-    const asFixedSizeArray = (length, array) => {
+    const asFixedSizeArray = <N extends number, T>(length: N, array: T[]) => {
         if (array.length === length) {
-            return /** @type {FixedSizeArray<N, T>} */(/** @type {unknown} */(array))
+            return array as unknown as FixedSizeArray<N, T>
         }
         throw new Error(`length: ${length}, array.length: ${array.length}, array: ${JSON.stringify(array)}`)
     }
-    /**
-     * @template T
-     * @param {[T, ...T[]]} tuple
-     * @returns {T}
-     */
-    const fixedSizeArrayLast = tuple => /** @type {T} */(tuple[tuple.length - 1])
 
-    /**
-     * @param {TemplateStringsArray} message
-     * @param  {...unknown} substitutions
-     */
-    const error = (message, ...substitutions) => {
+    const fixedSizeArrayLast = <T>(tuple: [T, ...T[]]) => tuple[tuple.length - 1] as T
+
+    const error = (message: TemplateStringsArray, ...substitutions: unknown[]) => {
         throw new Error(String.raw(message, ...substitutions))
     }
 
-    /**
-     * @typedef BoxCreateOptions
-     * @property {number} x
-     * @property {number} y
-     * @property {number} width
-     * @property {number} height
-     * @property {undefined} [position]
-     * @property {undefined} [size]
-     */
+    interface BoxCreateOptions {
+        x: number
+        y: number
+        width: number
+        height: number
+        position?: undefined
+        size?: undefined
+    }
     class Box {
-        /**
-         * @param {number} x
-         * @param {number} y
-         * @param {number} width
-         * @param {number} height
-         */
-        constructor(x, y, width, height) {
+        _x
+        _y
+        _width
+        _height
+        constructor(x: number, y: number, width: number, height: number) {
             this._x = x
             this._y = y
             this._width = width
@@ -71,20 +50,16 @@
         get width() { return this._width }
         get height() { return this._height }
 
-        /**
-         * @param {BoxCreateOptions} options
-         */
-        static create(options) {
+        static create(options: BoxCreateOptions) {
             const { x, y, width, height } = options
             return new this(x, y, width, height)
         }
 
         /**
          * この Box を上と下に分割する。
-         * @param {number} topHeight 上の Box の高さ
-         * @returns {[top: Box, bottom: Box]}
+         * @param topHeight 上の Box の高さ
          */
-        splitTop(topHeight) {
+        splitTop(topHeight: number): [top: Box, bottom: Box] {
             return [
                 new Box(this._x, this._y, this._width, topHeight),
                 new Box(this._x, this._y + topHeight, this._width, this._height - topHeight)
@@ -92,10 +67,9 @@
         }
         /**
          * この Box を上と下に分割する。
-         * @param {number} bottomHeight 下の Box の高さ
-         * @returns {[top: Box, bottom: Box]}
+         * @param bottomHeight 下の Box の高さ
          */
-        splitBottom(bottomHeight) {
+        splitBottom(bottomHeight: number): [top: Box, bottom: Box] {
             return [
                 new Box(this._x, this._y, this._width, this._height - bottomHeight),
                 new Box(this._x, this._y + (this._height - bottomHeight), this._width, bottomHeight)
@@ -103,10 +77,9 @@
         }
         /**
          * この Box を左と右に分割する
-         * @param {number} leftWidth 左の Box の幅
-         * @returns {[left: Box, right: Box]}
+         * @param leftWidth 左の Box の幅
          */
-        splitLeft(leftWidth) {
+        splitLeft(leftWidth: number): [left: Box, right: Box] {
             return [
                 new Box(this._x, this._y, leftWidth, this._height),
                 new Box(this._x + leftWidth, this._y, this._width - leftWidth, this._height)
@@ -114,38 +87,25 @@
         }
         /**
          * この Box を左と右に分割する
-         * @param {number} rightWidth 右の Box の幅
-         * @returns {[left: Box, right: Box]}
+         * @param rightWidth 右の Box の幅
          */
-        splitRight(rightWidth) {
+        splitRight(rightWidth: number): [left: Box, right: Box] {
             return [
                 new Box(this._x, this._y, this._width - rightWidth, this._height),
                 new Box(this._x + (this._width - rightWidth), this._y, rightWidth, this._height)
             ]
         }
     }
-    /**
-     *
-     * @template T, Item
-     * @param {T} initialValue
-     * @param {readonly Item[]} items
-     * @param {(item: Item) => T} mapping
-     */
-    const getMaxValue = (initialValue, items, mapping) =>
+    const getMaxValue = <T, Item>(initialValue: T, items: readonly Item[], mapping: (item: Item) => T) =>
         items.reduce((currentMax, x) => {
             const n = mapping(x)
             if (currentMax < n) { return n }
             return currentMax
         }, initialValue)
 
-    const textMetricsHeight = (/** @type {TextMetrics} */ metrics) => metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
+    const textMetricsHeight = (metrics: TextMetrics) => metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
 
-    /**
-     * @param {number} H
-     * @param {number} S
-     * @param {number} V
-     */
-    const hsvToRgb = (H, S, V) => {
+    const hsvToRgb = (H: number, S: number, V: number) => {
         const
             C = V * S,
             Hp = H / 60,
@@ -170,7 +130,7 @@
 
         return [R, G, B]
     }
-    const ready = (/** @type {() => void} */ onDocumentLoaded) => {
+    const ready = (onDocumentLoaded: () => void) => {
         if (document.readyState === "complete") {
             onDocumentLoaded()
         }
@@ -183,26 +143,28 @@
         }
     }
 
-    /**
-     * @typedef {"Wave"} WaveType 波型
-     * @typedef {"JumpSmall"} JumpSmallType 跳ね小型
-     * @typedef {"JumpBig"} JumpBigType 跳ね大型
-     * @typedef {"Decrease"} DecreaseType 減少型
-     * @typedef {WaveType | JumpSmallType | JumpBigType | DecreaseType | "?"} VariantType 変動型
-     */
-    /**
-     * 週間予測
-     * @typedef WeeklyPredictions
-     * @property variant {VariantType} 変動型
-     * @property probability {number} 確率
-     * @property values {FixedSizeArray<12, [ min: number, max: number ]>} 予測値列 ( 日曜午前 ～ 土曜午後 )
-     */
+    /** 波型 */
+    type WaveType = "Wave"
+    /** 跳ね小型 */
+    type JumpSmallType = "JumpSmall"
+    /** 跳ね大型 */
+    type JumpBigType = "JumpBig"
+    /** 減少型 */
+    type DecreaseType = "Decrease"
+    /** 変動型 */
+    type VariantType = WaveType | JumpSmallType | JumpBigType | DecreaseType | "?"
 
-    /**
-     * @param {string} s
-     * @returns {VariantType}
-     */
-    const parseVariant = s => {
+    /** 週間予測 */
+    interface WeeklyPredictions {
+        /** 変動型 */
+        variant: VariantType
+        /** 確率 */
+        probability: number
+        /** 予測値列 ( 日曜午前 ～ 土曜午後 ) */
+        values: FixedSizeArray<12, [ min: number, max: number ]>
+    }
+
+    const parseVariant = (s: string): VariantType => {
         switch (s) {
             case "波型": return "Wave"
             case "跳ね小型": return "JumpSmall"
@@ -212,25 +174,19 @@
         }
     }
 
-    /**
-     * @param {Element} outputTBody
-     * @returns {Array<WeeklyPredictions>}
-     */
-    const collectWeeklyPredications = outputTBody =>
+    const collectWeeklyPredications = (outputTBody: Element) =>
         Array.from(outputTBody.querySelectorAll(":scope > tr"))
             .filter(tr => tr.classList.length === 0)
             .map(tr => {
                 const [variant = error`variant`, probability = error`probability`, , ...rest] = Array.from(tr.querySelectorAll("td"))
                 const values = rest.slice(0, rest.length - 2)
 
-                /** @type {WeeklyPredictions} */
-                const result = {
+                const result: WeeklyPredictions = {
                     variant: parseVariant(variant.innerText.trim()),
                     probability: Number(/^\s*(.+)%\s*$/.exec(probability.innerText)?.[1] ?? error`probability`) * 0.01,
                     values: asFixedSizeArray(12, values.map(values => {
                         const [, min = error`values.min`, , max = min] = /^\s*(\d+)(~(\d+))?\s*$/.exec(values.innerText) ?? error`values`
-                        /** @type {[min: number, max: number]} */
-                        const result = [Number(min), Number(max)]
+                        const result: [min: number, max: number] = [Number(min), Number(max)]
                         return result
                     }))
                 }
@@ -268,17 +224,17 @@
         const { pictureFrame, canvas } = createPlotterElements()
         const cc = canvas.getContext("2d") ?? error`2d context`
 
-        const getMaxAxis = (/** @type {number} */ maxValue) => {
+        const getMaxAxis = (maxValue: number) => {
             const scale = Math.pow(10, Math.floor(Math.log10(Math.abs(maxValue))))
             return Math.ceil(maxValue / scale) * scale
         }
 
-        const createLabel = (/** @type {string} */ text) => {
+        const createLabel = (text: string) => {
             const font = cc.font = "0.8rem 'YuGothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', sans-serif"
             const metrics = cc.measureText(text)
             return { text, font, metrics }
         }
-        const drawGraph = (/** @type {Element} */ output) => {
+        const drawGraph = (output: Element) => {
 
             // キャンバスの大きさを設定
             const canvasBox = Box.create({
@@ -352,7 +308,7 @@
             const [yLabelArea, graphArea] = restCanvas2.splitLeft(maxYLabelWidth + yLabelAreaPadding)
             const [, xLabelArea] = xLabelArea0.splitLeft(yLabelArea.width)
 
-            const getYLabelLineY = (/** @type {number} */ index) =>
+            const getYLabelLineY = (index: number) =>
                 yLabelArea.y + (yLabelArea.height - index * (yLabelArea.height / (scalesY.length - 1)))
 
             // Yラベルを描画
@@ -393,22 +349,10 @@
                 cc.fillText(label.text, x, y)
             })
 
-            // グラフを描画
-            /**
-             *
-             * @param {WeeklyPredictions} ps
-             * @param {number} h
-             * @param {boolean} [fillMode]
-             */
-            const drawPredicationLine = (ps, h, fillMode = false) => {
+            /** グラフを描画 */
+            const drawPredicationLine = (ps: WeeklyPredictions, h: number, fillMode: boolean = false) => {
                 const { values, probability } = ps
-
-                /**
-                 * @param {number} value
-                 * @param {number} index
-                 * @returns {[x: number, y: number]}
-                 */
-                 const getPosition = (value, index) => {
+                const getPosition = (value: number, index: number): [x: number, y: number] => {
                     const x = graphArea.x + index * (graphArea.width / (values.length - 1))
                     const y = graphArea.y + graphArea.height - (
                         graphArea.height * (value / maxScaleYValue)
