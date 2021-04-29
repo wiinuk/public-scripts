@@ -1,4 +1,6 @@
 //@ts-check
+//spell-checker: ignore Segoe Helvetica
+
 (() => {
     "use strict";
 
