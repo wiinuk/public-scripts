@@ -7,36 +7,46 @@ import { ready, textMetricsHeight } from "../document"
 import { hsvToRgb } from "../color"
 import FixedSizeArray from "../fixed-size-array"
 
-/** 詳細グラフの描画 */
-export const setup = () => {
-    const createPlotterElements = () => {
-        const pictureFrame = document.createElement("div")
-        const style = pictureFrame.style
-        style.width = "100%"
-        style.height = "32em"
-        style.marginTop = style.marginBottom = "2%"
+const createElements = () => {
+    const pictureFrame = document.createElement("div")
+    const style = pictureFrame.style
+    style.width = "100%"
+    style.height = "32em"
+    style.marginTop = style.marginBottom = "2%"
 
-        const canvas = document.createElement("canvas")
-        canvas.style.display = "block"
+    const canvas = document.createElement("canvas")
+    canvas.style.display = "block"
 
-        pictureFrame.appendChild(canvas)
+    pictureFrame.appendChild(canvas)
 
-        return { pictureFrame, canvas }
+    return { pictureFrame, canvas }
+}
+
+const getMaxAxis = (maxValue: number) => {
+    const scale = Math.pow(10, Math.floor(Math.log10(Math.abs(maxValue))))
+    return Math.ceil(maxValue / scale) * scale
+}
+
+class Plotter {
+    private readonly pictureFrame
+    private readonly canvas
+    private readonly renderingContext
+
+    constructor() {
+        const { pictureFrame, canvas } = createElements()
+        this.pictureFrame = pictureFrame
+        this.canvas = canvas
+        this.renderingContext = canvas.getContext("2d") ?? error`2d context`
     }
-    const { pictureFrame, canvas } = createPlotterElements()
-    const cc = canvas.getContext("2d") ?? error`2d context`
+    get element() { return this.pictureFrame }
 
-    const getMaxAxis = (maxValue: number) => {
-        const scale = Math.pow(10, Math.floor(Math.log10(Math.abs(maxValue))))
-        return Math.ceil(maxValue / scale) * scale
-    }
-
-    const createLabel = (text: string) => {
-        const font = cc.font = "0.8rem 'YuGothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', sans-serif"
-        const metrics = cc.measureText(text)
+    private createLabel(text: string) {
+        const font = this.renderingContext.font = "0.8rem 'YuGothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', sans-serif"
+        const metrics = this.renderingContext.measureText(text)
         return { text, font, metrics }
     }
-    const drawGraph = (output: Element) => {
+    drawGraph(predications: readonly WeeklyPredictions[]) {
+        const { canvas, pictureFrame, renderingContext: rc } = this
 
         // キャンバスの大きさを設定
         const canvasBox = Box.create({
@@ -46,20 +56,17 @@ export const setup = () => {
             height: canvas.height = pictureFrame.offsetHeight
         })
 
-        cc.clearRect(0, 0, canvasBox.width, canvasBox.height)
+        rc.clearRect(0, 0, canvasBox.width, canvasBox.height)
 
         // cc.fillStyle = "rgb(0, 0, 255)"
         // cc.fillRect(0, 0, canvasWidth, canvasHeight)
         canvas.scrollIntoView()
 
-        /** グラフの元データ */
-        const predications = collectWeeklyPredications(output)
-
         /** X軸の目盛り一覧 */
         const scalesX = Array
             .from("月火水木金土")
             .flatMap(n => ([`${n}前`, `${n}後`]))
-            .map(text => ({ label: createLabel(text) }))
+            .map(text => ({ label: this.createLabel(text) }))
 
         /** グラフの最大値 */
         const maxValue = ArrayEx.maxValue(0, predications, p =>
@@ -72,7 +79,7 @@ export const setup = () => {
         const scalesY = [0, scaleY, scaleY * 2, scaleY * 3, maxScaleYValue]
             .map(value => {
                 const text = String(value)
-                const label = createLabel(text)
+                const label = this.createLabel(text)
                 return { value, label }
             })
 
@@ -114,41 +121,41 @@ export const setup = () => {
             yLabelArea.y + (yLabelArea.height - index * (yLabelArea.height / (scalesY.length - 1)))
 
         // Yラベルを描画
-        cc.fillStyle = "gray"
-        cc.textAlign = "right"
-        cc.textBaseline = "middle"
+        rc.fillStyle = "gray"
+        rc.textAlign = "right"
+        rc.textBaseline = "middle"
         scalesY.forEach(({ label }, index) => {
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
-            cc.font = label.font
-            cc.fillText(label.text, x, y)
+            rc.font = label.font
+            rc.fillText(label.text, x, y)
         })
 
         // Y補助線を描画
-        cc.lineWidth = 1
+        rc.lineWidth = 1
         scalesY.forEach((_, index) => {
             if (index === 0) {
-                cc.strokeStyle = "rgba(0, 0, 0, 0.5)"
+                rc.strokeStyle = "rgba(0, 0, 0, 0.5)"
             }
             else {
-                cc.strokeStyle = "rgba(0, 0, 0, 0.2)"
+                rc.strokeStyle = "rgba(0, 0, 0, 0.2)"
             }
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
-            cc.beginPath()
-            cc.moveTo(x | 0, y | 0)
-            cc.lineTo(canvasBox.width | 0, y | 0)
-            cc.stroke()
+            rc.beginPath()
+            rc.moveTo(x | 0, y | 0)
+            rc.lineTo(canvasBox.width | 0, y | 0)
+            rc.stroke()
         })
 
         // Xラベルを描画
-        cc.textAlign = "center"
-        cc.textBaseline = "bottom"
+        rc.textAlign = "center"
+        rc.textBaseline = "bottom"
         scalesX.forEach(({ label }, index) => {
             const x = xLabelArea.x + (index * (xLabelArea.width / (scalesX.length - 1)))
             const y = canvasBox.height
-            cc.font = label.font
-            cc.fillText(label.text, x, y)
+            rc.font = label.font
+            rc.fillText(label.text, x, y)
         })
 
         /** グラフを描画 */
@@ -163,34 +170,34 @@ export const setup = () => {
             }
             const [, max0] = values[0]
             const [r, g, b] = hsvToRgb(h, 1, 1)
-            cc.lineWidth = 1
-            cc.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.2)`
-            cc.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`
-            cc.beginPath()
-            cc.moveTo(...getPosition(max0, 0))
+            rc.lineWidth = 1
+            rc.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.2)`
+            rc.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`
+            rc.beginPath()
+            rc.moveTo(...getPosition(max0, 0))
 
             values.forEach(([, max], index) => {
-                cc.lineTo(...getPosition(max, index))
+                rc.lineTo(...getPosition(max, index))
             })
 
             const [minLast, ] = FixedSizeArray.last(values)
             const pos = getPosition(minLast, values.length - 1)
             if (fillMode) {
-                cc.lineTo(...pos)
+                rc.lineTo(...pos)
             }
             else {
-                cc.moveTo(...pos)
+                rc.moveTo(...pos)
             }
 
             values.concat().reverse().forEach(([min, ], index, values) => {
-                cc.lineTo(...getPosition(min, values.length - index - 1))
+                rc.lineTo(...getPosition(min, values.length - index - 1))
             })
 
             if (fillMode) {
-                cc.fill()
+                rc.fill()
             }
             else {
-                cc.stroke()
+                rc.stroke()
             }
         }
         predications.forEach((ps, index) => {
@@ -210,6 +217,12 @@ export const setup = () => {
             // graphArea,
         }))
     }
+}
+
+/** 詳細グラフの描画 */
+export const setup = () => {
+    const plotter = new Plotter()
+    const { element: pictureFrame } = plotter
 
     ready(async () => {
 
@@ -224,13 +237,13 @@ export const setup = () => {
         // 額縁の大きさの変更を検知
         new ResizeObserver(() => {
             console.log("グラフ再描画 ( 額縁のサイズ変更 )")
-            drawGraph(output)
+            plotter.drawGraph(collectWeeklyPredications(output))
         }).observe(pictureFrame)
 
         // 出力の変更を検知
         new MutationObserver(() => {
             console.log("グラフ再描画 ( 元データの変更 )")
-            drawGraph(output)
+            plotter.drawGraph(collectWeeklyPredications(output))
         }).observe(output, { childList: true, subtree: true })
     })
 }
