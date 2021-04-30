@@ -5,10 +5,11 @@ npx browser-sync start --server '.' --files '.' &
 
 # 全てのジョブの出力を受信する
 $lastWriteJobId = $null
-while (Get-Job | Where-Object { -! ($_.State -eq "Completed" -or $_.State -eq "Failed") -or $_.HasMoreData }) {
-    foreach ($job in Get-Job -HasMoreData $true) {
+while (Get-Job | Where-Object { -! ($_.State -eq "Completed" -or $_.State -eq "Failed") -or $_.HasMoreData } | Select-Object -First 1) {
+    Get-Job -HasMoreData $true | ForEach-Object {
+        $job = $_
         $output = $job | Receive-Job
-        if (-! $output) { continue }
+        if (-! $output) { return }
 
         # 違うジョブなら区切りを追加
         if ($lastWriteJobId -ne $job.Id) {
