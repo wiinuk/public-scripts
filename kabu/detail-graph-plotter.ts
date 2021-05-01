@@ -6,6 +6,11 @@ import * as ArrayEx from "../array"
 import { ready, textMetricsHeight } from "../document"
 import { hsvToRgb } from "../color"
 import FixedSizeArray from "../fixed-size-array"
+import { Label, LabelCreateOptions } from "../graphics/visuals/label"
+import { VisualCollection } from "../graphics/visual"
+import { Line, LineCreateOptions } from "../graphics/visuals/line"
+import { PathBuffer, PathDrawingMode, Polyline } from "../graphics/visuals/polyline"
+
 
 const createElements = () => {
     const pictureFrame = document.createElement("div")
@@ -45,18 +50,24 @@ class Plotter {
         const metrics = this.renderingContext.measureText(text)
         return { text, font, metrics }
     }
-    drawGraph(predications: readonly WeeklyPredictions[]) {
+    updateCanvasSize() {
         const { canvas, pictureFrame, renderingContext: rc } = this
+        canvas.width = pictureFrame.offsetWidth
+        canvas.height = pictureFrame.offsetHeight
+    }
+
+    private readonly visuals = new VisualCollection()
+    createGraphVisuals(predications: readonly WeeklyPredictions[]) {
+        const { canvas, renderingContext: rc, visuals } = this
+        this.updateCanvasSize()
 
         // キャンバスの大きさを設定
         const canvasBox = Box.create({
             x: 0,
             y: 0,
-            width: canvas.width = pictureFrame.offsetWidth,
-            height: canvas.height = pictureFrame.offsetHeight
+            width: canvas.width,
+            height: canvas.height
         })
-
-        rc.clearRect(0, 0, canvasBox.width, canvasBox.height)
 
         // cc.fillStyle = "rgb(0, 0, 255)"
         // cc.fillRect(0, 0, canvasWidth, canvasHeight)
@@ -120,46 +131,64 @@ class Plotter {
         const getYLabelLineY = (index: number) =>
             yLabelArea.y + (yLabelArea.height - index * (yLabelArea.height / (scalesY.length - 1)))
 
-        // Yラベルを描画
-        rc.fillStyle = "gray"
-        rc.textAlign = "right"
-        rc.textBaseline = "middle"
+        visuals.clear()
+
+        // Yラベルを作成
+        const scaleYLabelOption: LabelCreateOptions = {
+            fillStyle: "gray",
+            textAlign: "right",
+            textBaseline: "middle",
+        }
         scalesY.forEach(({ label }, index) => {
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
-            rc.font = label.font
-            rc.fillText(label.text, x, y)
+            visuals.push(new Label(
+                rc,
+                label.text, x, y,
+                scaleYLabelOption
+            ))
         })
 
-        // Y補助線を描画
-        rc.lineWidth = 1
+        // Y補助線を作成
+        const yLineOptions: LineCreateOptions = {
+            lineWidth: 1
+        }
         scalesY.forEach((_, index) => {
             if (index === 0) {
-                rc.strokeStyle = "rgba(0, 0, 0, 0.5)"
+                yLineOptions.strokeStyle = "rgba(0, 0, 0, 0.5)"
             }
             else {
-                rc.strokeStyle = "rgba(0, 0, 0, 0.2)"
+                yLineOptions.strokeStyle = "rgba(0, 0, 0, 0.2)"
             }
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
-            rc.beginPath()
-            rc.moveTo(x | 0, y | 0)
-            rc.lineTo(canvasBox.width | 0, y | 0)
-            rc.stroke()
+            visuals.push(new Line(
+                rc,
+                x, y,
+                canvasBox.width, y,
+                yLineOptions
+            ))
         })
 
-        // Xラベルを描画
-        rc.textAlign = "center"
-        rc.textBaseline = "bottom"
+        // Xラベルを作成
+        const xScaleLabelOptions: LabelCreateOptions = {
+            textAlign: "center",
+            textBaseline: "bottom",
+            fillStyle: "gray",
+        }
         scalesX.forEach(({ label }, index) => {
             const x = xLabelArea.x + (index * (xLabelArea.width / (scalesX.length - 1)))
             const y = canvasBox.height
-            rc.font = label.font
-            rc.fillText(label.text, x, y)
+            visuals.push(new Label(
+                rc,
+                label.text,
+                x, y,
+                xScaleLabelOptions
+            ))
         })
 
-        /** グラフを描画 */
-        const drawPredicationLine = (ps: WeeklyPredictions, h: number, fillMode: boolean = false) => {
+        /** グラフを作成 */
+        const createPredicationLine = (ps: WeeklyPredictions, h: number, fillMode: boolean = false) => {
             const { values, probability } = ps
             const getPosition = (value: number, index: number): [x: number, y: number] => {
                 const x = graphArea.x + index * (graphArea.width / (values.length - 1))
@@ -170,40 +199,38 @@ class Plotter {
             }
             const [, max0] = values[0]
             const [r, g, b] = hsvToRgb(h, 1, 1)
-            rc.lineWidth = 1
-            rc.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.2)`
-            rc.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`
-            rc.beginPath()
-            rc.moveTo(...getPosition(max0, 0))
+
+            const path = new PathBuffer()
+            path.moveTo(...getPosition(max0, 0))
 
             values.forEach(([, max], index) => {
-                rc.lineTo(...getPosition(max, index))
+                path.lineTo(...getPosition(max, index))
             })
 
             const [minLast, ] = FixedSizeArray.last(values)
             const pos = getPosition(minLast, values.length - 1)
             if (fillMode) {
-                rc.lineTo(...pos)
+                path.lineTo(...pos)
             }
             else {
-                rc.moveTo(...pos)
+                path.moveTo(...pos)
             }
 
             values.concat().reverse().forEach(([min, ], index, values) => {
-                rc.lineTo(...getPosition(min, values.length - index - 1))
+                path.lineTo(...getPosition(min, values.length - index - 1))
             })
 
-            if (fillMode) {
-                rc.fill()
-            }
-            else {
-                rc.stroke()
-            }
+            return new Polyline(rc, path, {
+                lineWidth: 1,
+                strokeStyle: `rgba(${r}, ${g}, ${b}, 0.2)`,
+                fillStyle: `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`,
+                drawingMode: fillMode ? PathDrawingMode.Fill : PathDrawingMode.Stroke,
+            })
         }
         predications.forEach((ps, index) => {
             const h = (index / predications.length) * 360
-            drawPredicationLine(ps, h)
-            drawPredicationLine(ps, h, true)
+            visuals.push(createPredicationLine(ps, h))
+            visuals.push(createPredicationLine(ps, h, true))
         })
 
         console.log(JSON.stringify({
@@ -216,6 +243,22 @@ class Plotter {
             yLabelArea,
             // graphArea,
         }))
+    }
+
+    private previousTimestampMs = performance.now()
+    drawGraph(nowMs: number) {
+        const frameTimeMs = this.previousTimestampMs - nowMs
+        this.previousTimestampMs = nowMs
+
+        const { canvas, renderingContext: rc, visuals } = this
+
+        rc.clearRect(0, 0, canvas.width, canvas.height)
+        const renderer = {
+            context: rc,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height
+        }
+        visuals.render(renderer)
     }
 }
 
@@ -237,13 +280,20 @@ export const setup = () => {
         // 額縁の大きさの変更を検知
         new ResizeObserver(() => {
             console.log("グラフ再描画 ( 額縁のサイズ変更 )")
-            plotter.drawGraph(collectWeeklyPredications(output))
+            plotter.updateCanvasSize()
+            plotter.drawGraph(performance.now())
         }).observe(pictureFrame)
 
         // 出力の変更を検知
         new MutationObserver(() => {
             console.log("グラフ再描画 ( 元データの変更 )")
-            plotter.drawGraph(collectWeeklyPredications(output))
+            plotter.createGraphVisuals(collectWeeklyPredications(output))
         }).observe(output, { childList: true, subtree: true })
+
+        // 定期アップデート
+        requestAnimationFrame(function loop(nowMs) {
+            plotter.drawGraph(nowMs)
+            requestAnimationFrame(loop)
+        })
     })
 }
