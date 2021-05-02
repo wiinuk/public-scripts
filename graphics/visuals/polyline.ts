@@ -1,4 +1,4 @@
-import { error, exhaustiveCheck } from "../../error"
+import { exhaustiveCheck } from "../../error"
 import { CanvasRenderingInfo, Visual } from "../visual"
 
 interface PolylineCreateOptions {
@@ -33,43 +33,36 @@ export const enum PathDrawingMode {
     Stroke,
 }
 export class Polyline extends Visual {
-    private readonly normalizedPath
+    private readonly path
     private readonly lineWidth: CanvasRenderingContext2D["lineWidth"]
     private readonly strokeStyle: CanvasRenderingContext2D["strokeStyle"]
     private readonly fillStyle: CanvasRenderingContext2D["fillStyle"]
     private readonly drawingMode
 
     constructor(
-        renderingContext: CanvasRenderingContext2D,
         path: ReadonlyPathBuffer,
         options?: PolylineCreateOptions
     ) {
         super()
-        const { canvas: { width: canvasWidth, height: canvasHeight } } = renderingContext
-
-        const normalizedPath = this.normalizedPath = path.serialize()
-        for (let i = 0, length = normalizedPath.length; i < length; i += 3) {
-            normalizedPath[i + 1] /= canvasWidth
-            normalizedPath[i + 2] /= canvasHeight
-        }
+        this.path = path.serialize()
         this.lineWidth = options?.lineWidth ?? Visual.Defaults.lineWidth
         this.strokeStyle = options?.strokeStyle ?? Visual.Defaults.strokeStyle
         this.fillStyle = options?.fillStyle ?? Visual.Defaults.fillStyle
         this.drawingMode = options?.drawingMode ?? PathDrawingMode.Stroke
     }
 
-    render({ context, canvasWidth, canvasHeight }: CanvasRenderingInfo) {
-        const { normalizedPath, drawingMode } = this
+    render({ context }: CanvasRenderingInfo) {
+        const { path, drawingMode } = this
         context.lineWidth = this.lineWidth
         context.strokeStyle = this.strokeStyle
         context.fillStyle = this.fillStyle
 
         context.beginPath()
         context.moveTo(0, 0)
-        for (let i = 0, length = normalizedPath.length; i < length; i += 3) {
-            const kind = normalizedPath[i] as SegmentKind
-            const x = normalizedPath[i + 1]! * canvasWidth
-            const y = normalizedPath[i + 2]! * canvasHeight
+        for (let i = 0, length = path.length; i < length; i += 3) {
+            const kind = path[i]! as SegmentKind
+            const x = path[i + 1]!
+            const y = path[i + 2]!
 
             switch (kind) {
                 case SegmentKind.Move:

@@ -7,7 +7,7 @@ import { ready, textMetricsHeight } from "../document"
 import { hsvToRgb } from "../color"
 import FixedSizeArray from "../fixed-size-array"
 import { Label, LabelCreateOptions } from "../graphics/visuals/label"
-import { VisualCollection } from "../graphics/visual"
+import { CanvasRenderingInfo, VisualCollection } from "../graphics/visual"
 import { Line, LineCreateOptions } from "../graphics/visuals/line"
 import { PathBuffer, PathDrawingMode, Polyline } from "../graphics/visuals/polyline"
 
@@ -50,16 +50,24 @@ class Plotter {
         const metrics = this.renderingContext.measureText(text)
         return { text, font, metrics }
     }
-    updateCanvasSize() {
-        const { canvas, pictureFrame, renderingContext: rc } = this
-        canvas.width = pictureFrame.offsetWidth
-        canvas.height = pictureFrame.offsetHeight
+    private dataSource: readonly WeeklyPredictions[] = []
+    setDataSource(dataSource: readonly WeeklyPredictions[]) {
+        this.dataSource = dataSource
+
+        this.updateGraphVisuals()
+        this.drawGraph(performance.now())
+    }
+    setCanvasSize(width: number, height: number) {
+        this.canvas.width = width
+        this.canvas.height = height
+
+        this.updateGraphVisuals()
+        this.drawGraph(performance.now())
     }
 
     private readonly visuals = new VisualCollection()
-    createGraphVisuals(predications: readonly WeeklyPredictions[]) {
-        const { canvas, renderingContext: rc, visuals } = this
-        this.updateCanvasSize()
+    private updateGraphVisuals() {
+        const { canvas, visuals, dataSource: predications } = this
 
         // キャンバスの大きさを設定
         const canvasBox = Box.create({
@@ -143,7 +151,6 @@ class Plotter {
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
             visuals.push(new Label(
-                rc,
                 label.text, x, y,
                 scaleYLabelOption
             ))
@@ -163,7 +170,6 @@ class Plotter {
             const x = yLabelArea.width - yLabelAreaPadding
             const y = getYLabelLineY(index)
             visuals.push(new Line(
-                rc,
                 x, y,
                 canvasBox.width, y,
                 yLineOptions
@@ -180,7 +186,6 @@ class Plotter {
             const x = xLabelArea.x + (index * (xLabelArea.width / (scalesX.length - 1)))
             const y = canvasBox.height
             visuals.push(new Label(
-                rc,
                 label.text,
                 x, y,
                 xScaleLabelOptions
@@ -220,7 +225,7 @@ class Plotter {
                 path.lineTo(...getPosition(min, values.length - index - 1))
             })
 
-            return new Polyline(rc, path, {
+            return new Polyline(path, {
                 lineWidth: 1,
                 strokeStyle: `rgba(${r}, ${g}, ${b}, 0.2)`,
                 fillStyle: `rgba(${r}, ${g}, ${b}, ${0.5 * probability})`,
@@ -246,19 +251,21 @@ class Plotter {
     }
 
     private previousTimestampMs = performance.now()
-    drawGraph(nowMs: number) {
+    private drawGraph(nowMs: number) {
         const frameTimeMs = this.previousTimestampMs - nowMs
         this.previousTimestampMs = nowMs
 
         const { canvas, renderingContext: rc, visuals } = this
 
         rc.clearRect(0, 0, canvas.width, canvas.height)
-        const renderer = {
+        const renderer: CanvasRenderingInfo = {
             context: rc,
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height
+            timeSpan: frameTimeMs,
         }
         visuals.render(renderer)
+    }
+    draw(nowMs: number) {
+        this.drawGraph(nowMs)
     }
 }
 
@@ -280,19 +287,18 @@ export const setup = () => {
         // 額縁の大きさの変更を検知
         new ResizeObserver(() => {
             console.log("グラフ再描画 ( 額縁のサイズ変更 )")
-            plotter.updateCanvasSize()
-            plotter.drawGraph(performance.now())
+            plotter.setCanvasSize(pictureFrame.offsetWidth, pictureFrame.offsetHeight)
         }).observe(pictureFrame)
 
         // 出力の変更を検知
         new MutationObserver(() => {
             console.log("グラフ再描画 ( 元データの変更 )")
-            plotter.createGraphVisuals(collectWeeklyPredications(output))
+            plotter.setDataSource(collectWeeklyPredications(output))
         }).observe(output, { childList: true, subtree: true })
 
         // 定期アップデート
         requestAnimationFrame(function loop(nowMs) {
-            plotter.drawGraph(nowMs)
+            plotter.draw(nowMs)
             requestAnimationFrame(loop)
         })
     })

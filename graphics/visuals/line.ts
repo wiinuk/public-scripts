@@ -5,41 +5,39 @@ export interface LineCreateOptions  {
     strokeStyle?: Line["strokeStyle"]
 }
 export class Line extends Visual {
-    private readonly normalizedX1
-    private readonly normalizedY1
-    private readonly normalizedX2
-    private readonly normalizedY2
+    private readonly x1
+    private readonly y1
+    private readonly x2
+    private readonly y2
     private readonly lineWidth: CanvasRenderingContext2D["lineWidth"]
     private readonly strokeStyle: CanvasRenderingContext2D["strokeStyle"]
 
     constructor(
-        renderingContext: CanvasRenderingContext2D,
         startX: number, startY: number,
         endX: number, endY: number,
         options?: LineCreateOptions
     ) {
         super()
-        const { canvas: { width: canvasWidth, height: canvasHeight } } = renderingContext
-        this.normalizedX1 = startX / canvasWidth
-        this.normalizedY1 = startY / canvasHeight
-        this.normalizedX2 = endX / canvasWidth
-        this.normalizedY2 = endY / canvasHeight
+        this.x1 = startX
+        this.y1 = startY
+        this.x2 = endX
+        this.y2 = endY
 
         this.lineWidth = options?.lineWidth ?? Visual.Defaults.lineWidth
         this.strokeStyle = options?.strokeStyle ?? Visual.Defaults.strokeStyle
     }
-    render({ context, canvasWidth, canvasHeight }: CanvasRenderingInfo) {
+    render({ context }: CanvasRenderingInfo) {
         context.lineWidth = this.lineWidth
         context.strokeStyle = this.strokeStyle
 
         context.beginPath()
         context.moveTo(
-            (this.normalizedX1 * canvasWidth) | 0,
-            (this.normalizedY1 * canvasHeight) | 0,
+            this.x1 | 0,
+            this.y1 | 0,
         )
         context.lineTo(
-            (this.normalizedX2 * canvasWidth) | 0,
-            (this.normalizedY2 * canvasHeight) | 0,
+            this.x2 | 0,
+            this.y2 | 0,
         )
         context.stroke()
     }

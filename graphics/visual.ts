@@ -1,8 +1,8 @@
 
 export interface CanvasRenderingInfo {
     readonly context: CanvasRenderingContext2D
-    readonly canvasWidth: number
-    readonly canvasHeight: number
+    /** ミリ秒の時間間隔 */
+    readonly timeSpan: number
 }
 export abstract class Visual {
     abstract render(renderingInfo: CanvasRenderingInfo): void
