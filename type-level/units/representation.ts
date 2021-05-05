@@ -23,7 +23,7 @@ type subDimension<k extends string, r1 extends UnitsRepresentationKind, r2 exten
         ? Z.sub<r1[k], r2[k]>
         : r1[k]
     )
-    : r2[k]
+    : Z.sub<Int<0>, r2[k]>
 
 type nonZeroDimensionKeys<r extends UnitsRepresentationKind> = {
     [k in keyof r]: r[k] extends Int<0> ? never : k
