@@ -20,3 +20,7 @@ export type unionToTuple<T> =
     : []
 
 export type equals<T, S> = [T] extends [S] ? ([S] extends [T] ? true : false) : false
+
+/** 不変な T を持ち運ぶオブジェクト */
+export type Identity<T> = (x: T) => T
+export const identity = <T>(x: T) => x

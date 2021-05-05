@@ -32,9 +32,15 @@ type nonZeroDimensionKeys<r extends UnitsRepresentationKind> = {
 export type normalize<r extends UnitsRepresentationKind> = kind<UnitsRepresentationKind, {
     [k in nonZeroDimensionKeys<r>]: r[k]
 }>
+/** `*` */
 export type mul<r1 extends UnitsRepresentationKind, r2 extends UnitsRepresentationKind> = kind<UnitsRepresentationKind, normalize<{
     [k in cast<string, keyof r1 | keyof r2>]: addDimension<k, r1, r2>
 }>>
+/** `/` */
 export type div<r1 extends UnitsRepresentationKind, r2 extends UnitsRepresentationKind> = kind<UnitsRepresentationKind, normalize<{
     [k in cast<string, keyof r1 | keyof r2>]: subDimension<k, r1, r2>
+}>>
+/** `-` */
+export type neg<r extends UnitsRepresentationKind> = kind<UnitsRepresentationKind, normalize<{
+    [k in keyof r]: Z.sub<Int<0>, r[k]>
 }>>

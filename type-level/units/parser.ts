@@ -1,22 +1,21 @@
-import { equals, kind, unreachable } from "../types"
+import { cast, equals, kind, unreachable } from "../types"
 import { anyOf, isEos, mergeError, noneOf, parseError, ParseErrorKind, skipSpaces, streamFromString, StreamKind } from "../parser"
 import { Failure, Ok, ResultKind, Success } from "../result"
 import * as N from "../natural"
 import { NaturalKind, Nat } from "../natural"
 import * as Z from "../integer"
 import { Int } from "../integer"
-import { UnitsKind } from "../units"
+import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
 import { assert } from "../assert"
-import { mul, normalize, UnitsRepresentationKind } from "./representation"
+import { mul, neg, normalize, UnitsRepresentationKind } from "./representation"
 import * as Syntax from "./syntax"
 
-
-type emptyUnits = {}
 
 type asciiDigits = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 type minus = "-"
 type exponentSymbol = "^"
 type termJoiner = "*"
+type fractionSymbol = "/"
 
 type nonIdChars =
 
@@ -31,8 +30,8 @@ type nonIdChars =
     // exponent
     | exponentSymbol
 
-    // simple-term
-    | "/"
+    // single-fraction-tail
+    | fractionSymbol
 
     // terms
     | termJoiner
@@ -199,25 +198,27 @@ type parseTerms1<stream extends StreamKind> =
 type parseTerms0<stream extends StreamKind> =
     parseTerms1<stream> extends Success<infer value>
     ? Ok<value>
-    : Ok<[stream, emptyUnits]>
+    : Ok<[stream, DimensionlessUnits]>
 
-/** (?<simple-term> (?# TODO )) */
-type parseSimpleTerm<stream extends StreamKind> =
-    parseError<"TODO", stream>
+/** `(?<single-fraction-tail> \k<spaces> / \k<terms0>)` */
+type parseSingleFractionTail<stream extends StreamKind> =
+    anyOf<skipSpaces<stream>, "/", "Fraction symbol required."> extends infer result
+    ? (
+        result extends Ok<[kind<StreamKind, infer stream>, infer _char]>
+        ? parseTerms0<stream>
+        : result
+    )
+    : unreachable
 
-/** `(?<units-body> \k<terms0> | \k<simple-term>)` */
+/** `(?<units-body> \k<terms0> \k<single-fraction-tail>?)` */
 type parseUnitsBody<stream extends StreamKind> =
     parseTerms0<stream> extends infer termsResult
     ? (
-        termsResult extends ParseErrorKind
+        termsResult extends Ok<[kind<StreamKind, infer stream>, kind<UnitsRepresentationKind, infer numeratorTerms>]>
         ? (
-            parseSimpleTerm<stream> extends infer simpleTermResult
-            ? (
-                simpleTermResult extends ParseErrorKind
-                ? mergeError<stream, termsResult, simpleTermResult>
-                : simpleTermResult
-            )
-            : unreachable
+            parseSingleFractionTail<stream> extends Ok<[infer stream, kind<UnitsRepresentationKind, infer denominatorTerms>]>
+            ? Ok<[stream, mul<numeratorTerms, neg<denominatorTerms>>]>
+            : Ok<[stream, numeratorTerms]>
         )
         : termsResult
     )
@@ -237,7 +238,7 @@ type parseUnits<stream extends StreamKind> =
             )
             : unreachable
         )
-        : parseSimpleTerm<stream>
+        : unitsResult
     )
     : unreachable
 
@@ -327,7 +328,7 @@ type parseUnits<stream extends StreamKind> =
 
     assert<equals<
         parsed<parseTerms0<streamFromString<"">>>,
-        emptyUnits
+        DimensionlessUnits
     >>()
 
     assert<equals<
@@ -351,13 +352,42 @@ type parseUnits<stream extends StreamKind> =
         parsed<parseUnits<streamFromString<"m m">>>,
         { m: Int<2> }
     >>()
+    assert<equals<
+        parsed<parseUnits<streamFromString<"m/s^2">>>,
+        { m: Int<1>, s: Int<-2> }
+    >>()
+    assert<equals<
+        parsed<parseUnits<streamFromString<"s^">>>,
+        Failure<"End of string is required.", {
+            source: "s^";
+            position: 1;
+        }>
+    >>()
+    assert<equals<
+        parsed<parseUnits<streamFromString<"/s">>>,
+        { s: Int<-1> }
+    >>()
+    assert<equals<
+        parsed<parseUnits<streamFromString<"m/">>>,
+        { m: Int<1> }
+    >>()
+    assert<equals<
+        parsed<parseUnits<streamFromString<"m/s/s">>>,
+        Failure<"End of string is required.", {
+            source: "m/s/s";
+            position: 3;
+        }>
+    >>()
 }
 
-export type representationOrFailure<units extends UnitsKind> =
-    parseUnits<streamFromString<units>> extends infer parseResult
+export type unitOrFailure<view extends UnitsViewKind> =
+    parseUnits<streamFromString<view>> extends infer parseResult
     ? (
         parseResult extends Ok<[infer _stream, kind<UnitsRepresentationKind, infer value>]>
         ? normalize<value>
         : parseResult
     )
     : unreachable
+
+export type unitOrNever<view extends UnitsViewKind> =
+    cast<UnitsRepresentationKind, unitOrFailure<view>>
