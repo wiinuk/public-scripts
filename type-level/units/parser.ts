@@ -1,391 +1,385 @@
 import { cast, equals, kind, unreachable } from "../types"
-import { anyOf, isEos, mergeError, noneOf, parseError, ParseErrorKind, skipSpaces, charStreamFromString, CharStreamKind } from "../parser"
-import { Failure, Ok, ResultKind, Success } from "../result"
-import * as N from "../natural"
-import { NaturalKind, Nat } from "../natural"
-import * as Z from "../integer"
-import { Int } from "../integer"
-import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
+import { charStreamFromString, isEos, pushDiagnostic, streamFromItems, StreamKind, takeOrUndefined } from "../parser"
+import { Int, Integer, IntegerKind, minusSign, plusSign } from "../integer"
+import { IdToken, NaturalToken, parseTokens, TokenKind } from "./scanner"
+import { Nat, NaturalKind } from "../natural"
 import { assert } from "../assert"
+import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
 import { mul, neg, normalize, UnitsRepresentationKind } from "./representation"
-import * as Syntax from "./syntax"
+import { Failure } from "../result"
+import * as N from "../natural"
 
-
-type asciiDigits = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-type minus = "-"
-type exponentSymbol = "^"
-type termJoiner = "*"
-type fractionSymbol = "/"
-
-type nonIdChars =
-
-    // integer
-    | asciiDigits
-    | minus
-
-    // unicode-superscript-integer
-    | Syntax.superscript0To9[number]
-    | Syntax.superscriptMinus
-
-    // exponent
-    | exponentSymbol
-
-    // single-fraction-tail
-    | fractionSymbol
-
-    // terms
-    | termJoiner
-
-    // spaces
-    | " "
-
-/** `(?<id-char> (?! \k<integer> | \k<unicode-superscript-integer> | [\^/*] | \k<spaces> ) .)` */
-type parseIdChar<stream extends CharStreamKind> =
-    noneOf<stream, nonIdChars, "Numbers and symbols cannot be used as identifiers.">
-
-/** `(?<id-chars0> \k<id-char>*)` */
-type parseIdChars0<stream extends CharStreamKind, chars extends string> =
-    parseIdChar<stream> extends Ok<[kind<CharStreamKind, infer stream>, kind<string, infer char>]>
-    ? parseIdChars0<stream, `${chars}${char}`>
-    : Ok<[stream: stream, id: chars]>
-
-/** `(?<id> \k<spaces> \k<id-char> \k<id-chars0>)` */
-type parseId<stream extends CharStreamKind> =
-    parseIdChar<skipSpaces<stream>> extends infer result
-    ? (
-        result extends Ok<[kind<CharStreamKind, infer stream>, kind<string, infer char0>]>
-        ? parseIdChars0<stream, char0>
-        : result
-    )
-    : unreachable
-
-// TODO
-type digitCharToNat = {
-    "0": Nat<0>
-    "1": Nat<1>
-    "2": Nat<2>
-    "3": Nat<3>
-    "4": Nat<4>
-    "5": Nat<5>
-    "6": Nat<6>
-    "7": Nat<7>
-    "8": Nat<8>
-    "9": Nat<9>
+interface UnitsDiagnostic<message extends string, position extends number, data> {
+    message: message
+    position: position
+    data: data
 }
-/** `(?<digit> [0-9])` */
-type parseDigit<stream extends CharStreamKind> =
-    anyOf<stream, asciiDigits, "Numbers ( 0 to 9 ) are required."> extends infer result
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type UnitsDiagnosticKind = UnitsDiagnostic<any, any, any>
+type TokenStreamKind = StreamKind<TokenKind, UnitsDiagnosticKind>
+
+/*
+ * type source = "-  abc"
+ * type stream = { consumed: ["-"], remaining: ["abc"] }
+ * の時
+ * missingTokenPosition<stream> = 1
+ */
+type missingTokenPosition<stream extends TokenStreamKind> =
+    stream["consumed"] extends [...infer _, kind<TokenKind, infer latestToken>]
+    ? latestToken["range"]["end"]
+    : 0
+
+/** `currentToken["tag"] extends tag` なら true */
+type currentTokenKindIs<tag extends TokenKind["tag"], stream extends TokenStreamKind> =
+    takeOrUndefined<stream> extends [infer _, kind<TokenKind, infer token>]
+    ? (token["tag"] extends tag ? true : false)
+    : false
+
+/** `equals<currentToken["tag"], tag>` なら currentToken["value"] を返す */
+type takeTokenValueOrUndefined<tag extends TokenKind["tag"], stream extends TokenStreamKind> =
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream2>, kind<TokenKind, infer token>]
     ? (
-        result extends Ok<[infer stream, kind<asciiDigits, infer digitChar>]>
-        ? Ok<[stream, digitCharToNat[digitChar]]>
-        : result
+        equals<token["tag"], tag> extends true
+        ? [stream2, token["value"]]
+        : undefined
     )
-    : unreachable
+    : undefined
 
-type _10N = N.add<Nat<9>, Nat<1>>
+// eslint-disable-next-line @typescript-eslint/ban-types
+type report<stream extends TokenStreamKind, message extends string, position extends number, data = {}> =
+    pushDiagnostic<stream, UnitsDiagnostic<message, position, data>>
 
-/** `(?<digits0> \k<digit>*)` */
-type parseDigits0<stream extends CharStreamKind, sign extends Z.SignKind, current extends NaturalKind> =
-    parseDigit<stream> extends Ok<[kind<CharStreamKind, infer stream>, kind<NaturalKind, infer digit>]>
-    ? parseDigits0<stream, sign, N.add<N.mul<current, _10N>, digit>>
-    : Ok<[stream, Z.Integer<sign, current>]>
+type anyTokenAsId<token extends TokenKind> = {
+    "Id": token extends IdToken<infer id, infer _range> ? id : unreachable
+    "Natural": token extends NaturalToken<infer n, infer _range> ? `(${N.toNumber<n>})` : unreachable
+    "^": "(^)"
+    "/": "(/)"
+    "*": "(*)"
+    "-": "(-)"
+}[token["tag"]]
 
-/** `(?<digits1> \k<digit> \k<digits0>)` */
-type parseDigits1<stream extends CharStreamKind, sign extends Z.SignKind, current extends NaturalKind> =
-    parseDigit<stream> extends infer result
+type takeAnyTokenAsTermOrUndefined<stream extends TokenStreamKind, sentinelTag extends TokenKind["tag"]> =
+    takeOrUndefined<stream> extends [infer stream2, kind<TokenKind, infer token>]
     ? (
-        result extends Ok<[kind<CharStreamKind, infer stream>, kind<NaturalKind, infer digit>]>
-        ? parseDigits0<stream, sign, N.add<N.mul<current, _10N>, digit>>
-        : result
+        token["tag"] extends sentinelTag
+
+        // sentinel
+        ? undefined
+
+        // !sentinel . => { id: 1 }
+        : [stream2, token, { [k in anyTokenAsId<token>]: Int<1> }]
     )
-    : unreachable
+    // $
+    : undefined
 
-/** `(?<integer> \k<spaces> \-? \k<digits1>)` */
-type parseInteger<stream extends CharStreamKind> =
-    skipSpaces<stream> extends kind<CharStreamKind, infer stream2>
+/** integer = Minus? Natural */
+type parseInteger<stream extends TokenStreamKind> =
+    // Minus
+    takeTokenValueOrUndefined<"-", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
     ? (
-        anyOf<stream2, minus, "A minus sign ( - ) is required."> extends Ok<[kind<CharStreamKind, infer stream3>, infer _char]>
-        ? parseDigits1<stream3, "-", Nat<0>>
-        : parseDigits1<stream2, "+", Nat<0>>
+        // Minus Natural
+        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, kind<NaturalKind, infer natural>]
+        ? [stream, Integer<minusSign, natural>]
+
+        // Minus !Natural => -1
+        : [report<stream, "Number is required.", missingTokenPosition<stream>>, Int<-1>]
     )
-    : unreachable
+    : (
+        // Natural
+        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, kind<NaturalKind, infer natural>]
+        ? [stream, Integer<plusSign, natural>]
 
-/** `(?<ascii-exponent> \k<spaces> \^ \k<spaces> \k<integer>)` */
-type parseAsciiExponent<stream extends CharStreamKind> =
-    anyOf<skipSpaces<stream>, exponentSymbol, "The exponent symbol ( ^ ) is required."> extends infer result
-    ? (
-        result extends Success<[kind<CharStreamKind, infer stream2>, infer _char]>
-        ? parseInteger<skipSpaces<stream2>>
-        : result
+        // !Natural => 1
+        : [report<stream, "Number is required.", missingTokenPosition<stream>>, Int<1>]
     )
-    : unreachable
 
+/** ascii-exponent = Circumflex integer)` */
+type parseAsciiExponent<stream extends TokenStreamKind> =
+    takeTokenValueOrUndefined<"^", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
 
-/**
-```regexp
-(?<unicode-superscript-integer>
-    \k<spaces>
-    \u207b? (?# "⁻" SUPERSCRIPT MINUS )
-    [
-        \u2070  (?# "⁰" SUPERSCRIPT ZERO )
-        \u00b9  (?# "¹" SUPERSCRIPT ONE )
-        \u00b2  (?# "²" SUPERSCRIPT TWO )
-        \u00b3  (?# "³" SUPERSCRIPT THREE )
-        \u2074- (?# "⁴" SUPERSCRIPT FOUR )
-        \u2079  (?# "⁹" SUPERSCRIPT NINE )
-    ]+
-)
-```
-*/
-type parseUnicodeSuperscriptInteger<stream extends CharStreamKind> =
-    parseError<"TODO", stream>
+    // Circumflex
+    ? parseInteger<stream>
 
-/** `(?<exponent> \k<ascii-exponent> | \k<unicode-superscript-integer>)` */
-type parseExponent<stream extends CharStreamKind> =
-    parseAsciiExponent<stream> extends infer asciiExponentResult
+    // !Circumflex => 1
+    : [report<stream, "Circumflex ( ^ ) is required.", missingTokenPosition<stream>>, Int<1>]
+
+type isAsciiExponentStart<stream extends TokenStreamKind> =
+    currentTokenKindIs<"^", stream>
+
+/** exponent = ascii-exponent | Superscript-integer */
+type parseExponent<stream extends TokenStreamKind> =
+    parseAsciiExponent<stream>
+
+type isExponentStart<stream extends TokenStreamKind> =
+    isAsciiExponentStart<stream>
+
+/** term = 1 | Id exponent? */
+type parseTerm<stream extends TokenStreamKind> =
+    takeTokenValueOrUndefined<"Id", stream> extends [kind<TokenStreamKind, infer stream>, kind<string, infer id>]
     ? (
-        asciiExponentResult extends ParseErrorKind
+        isExponentStart<stream> extends true
+
+        // id exponent
         ? (
-            parseUnicodeSuperscriptInteger<stream> extends infer unicodeSuperscriptResult
-            ? (
-                unicodeSuperscriptResult extends ParseErrorKind
-                ? mergeError<stream, asciiExponentResult, unicodeSuperscriptResult>
-                : unicodeSuperscriptResult
-            )
+            parseExponent<stream> extends [kind<TokenStreamKind, infer stream>, kind<IntegerKind, infer exponent>]
+            ? [stream, { [k in id]: exponent }]
             : unreachable
         )
-        : asciiExponentResult
-    )
-    : unreachable
 
-/** `(?<term> \k<id> \k<exponent>?)` */
-type parseTerm<stream extends CharStreamKind> =
-    parseId<stream> extends infer idResult
-    ? (
-        idResult extends Ok<[kind<CharStreamKind, infer stream>, kind<string, infer id>]>
-        ? (
-            parseExponent<stream> extends Ok<[infer stream, infer exponent]>
-            ? Ok<[stream, { [k in id]: exponent }]>
-            : Ok<[stream, { [k in id]: Int<1> }]>
-        )
-        : idResult
+        // id !exponent
+        : [stream, { [k in id]: Int<1> }]
     )
-    : unreachable
 
-/** (?<tail-term> (\k<spaces> \*)? \k<term>) */
-type parseTailTerm<stream extends CharStreamKind> =
-    anyOf<skipSpaces<stream>, termJoiner, "A term joiner ( * ) is required."> extends Ok<[kind<CharStreamKind, infer stream>, infer _char]>
+    : (
+        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, Nat<1>]
+
+        // 1 => {}
+        ? [stream, DimensionlessUnits]
+
+        // !(id | 1) => {}
+        : [report<stream, "Unit name or 1 ( for dimensionless ) is required.", missingTokenPosition<stream>>, DimensionlessUnits]
+    )
+
+type isTermStart<stream extends TokenStreamKind> =
+    currentTokenKindIs<"Id", stream> extends true
+    ? true
+    : (
+        takeTokenValueOrUndefined<"Natural", stream> extends [infer _stream, Nat<1>]
+        ? true
+        : false
+    )
+
+/** tail-term = Asterisk? term */
+type parseTailTerm<stream extends TokenStreamKind> =
+    takeTokenValueOrUndefined<"*", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+
+    // Asterisk
     ? parseTerm<stream>
+
+    // !Asterisk
     : parseTerm<stream>
 
-/** `(?<tail-terms> ?<tail-term>*)` */
-type parseTailTerms<stream extends CharStreamKind, terms extends UnitsRepresentationKind> =
-    parseTailTerm<stream> extends Ok<[kind<CharStreamKind, infer stream2>, kind<UnitsRepresentationKind, infer term>]>
-    ? parseTailTerms<stream2, mul<terms, term>>
-    : Ok<[stream, terms]>
+type isTailTermStart<stream extends TokenStreamKind> =
+    currentTokenKindIs<"*", stream> extends true
+    ? true
+    : isTermStart<stream>
 
-/** `(?<terms1> \k<term> \k<tail-terms>)` */
-type parseTerms1<stream extends CharStreamKind> =
-    parseTerm<stream> extends infer result
+/** tail-terms = tail-term* */
+type parseTailTerms<stream extends TokenStreamKind, sentinelTag extends TokenKind["tag"], terms extends UnitsRepresentationKind> =
+    isTailTermStart<stream> extends true
     ? (
-        result extends Ok<[kind<CharStreamKind, infer stream>, kind<UnitsRepresentationKind, infer term0>]>
-        ? parseTailTerms<stream, term0>
-        : result
+        // tail-term
+        parseTailTerm<stream> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer term>]
+        ? parseTailTerms<stream, sentinelTag, mul<terms, term>>
+        : unreachable
     )
-    : unreachable
+    : (
+        // !(tail-term | sentinel) . => { id: 1 }
+        takeAnyTokenAsTermOrUndefined<stream, sentinelTag> extends [kind<TokenStreamKind, infer stream>, kind<TokenKind, infer token>, kind<UnitsRepresentationKind, infer term>]
+        ? [report<stream, "An unanticipated token. Unit name or 1 is required.", token["range"]["start"]>, mul<terms, term>]
 
-/** `(?<terms0> \k<terms1>?)` */
-type parseTerms0<stream extends CharStreamKind> =
-    parseTerms1<stream> extends Success<infer value>
-    ? Ok<value>
-    : Ok<[stream, DimensionlessUnits]>
-
-/** `(?<single-fraction-tail> \k<spaces> / \k<terms0>)` */
-type parseSingleFractionTail<stream extends CharStreamKind> =
-    anyOf<skipSpaces<stream>, "/", "Fraction symbol required."> extends infer result
-    ? (
-        result extends Ok<[kind<CharStreamKind, infer stream>, infer _char]>
-        ? parseTerms0<stream>
-        : result
+        // !tail-term =(sentinel | $)
+        : [stream, terms]
     )
-    : unreachable
 
-/** `(?<units-body> \k<terms0> \k<single-fraction-tail>?)` */
-type parseUnitsBody<stream extends CharStreamKind> =
-    parseTerms0<stream> extends infer termsResult
+/** terms1 = term tail-terms */
+type parseTerms1<stream extends TokenStreamKind, sentinelTag extends TokenKind["tag"]> =
+    isTermStart<stream> extends true
+
+    // term
     ? (
-        termsResult extends Ok<[kind<CharStreamKind, infer stream>, kind<UnitsRepresentationKind, infer numeratorTerms>]>
+        parseTerm<stream> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer term0>]
+        ? parseTailTerms<stream, sentinelTag, term0>
+        : unreachable
+    )
+
+    // !(term | sentinel) . => {}
+    : [report<stream, "Unit name or 1 ( for dimensionless ) is required.", missingTokenPosition<stream>>, DimensionlessUnits]
+
+/** single-fraction-tail = Slash terms1 */
+type parseSingleFractionTail<stream extends TokenStreamKind> =
+    takeTokenValueOrUndefined<"/", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+
+    // Slash terms1
+    ? parseTerms1<stream, never>
+
+    // !Slash => {}
+    : [report<stream, `Fraction symbol ( / ) required.`, missingTokenPosition<stream>>, DimensionlessUnits]
+
+type isSingleFractionTailStart<stream extends TokenStreamKind> =
+    currentTokenKindIs<"/", stream>
+
+/** units-body = terms1 single-fraction-tail? */
+type parseUnitsBody<stream extends TokenStreamKind> =
+    parseTerms1<stream, "/"> extends [kind<TokenStreamKind, infer stream2>, kind<UnitsRepresentationKind, infer numeratorTerms>]
+    ? (
+        isSingleFractionTailStart<stream2> extends true
+
+        // terms1 single-fraction-tail
         ? (
-            parseSingleFractionTail<stream> extends Ok<[infer stream, kind<UnitsRepresentationKind, infer denominatorTerms>]>
-            ? Ok<[stream, mul<numeratorTerms, neg<denominatorTerms>>]>
-            : Ok<[stream, numeratorTerms]>
-        )
-        : termsResult
-    )
-    : unreachable
-
-/** `(?<units> \k<units-body> \k<spaces> $)` */
-type parseUnits<stream extends CharStreamKind> =
-    parseUnitsBody<stream> extends infer unitsResult
-    ? (
-        unitsResult extends Ok<[kind<CharStreamKind, infer stream2>, infer terms]>
-        ? (
-            skipSpaces<stream2> extends kind<CharStreamKind, infer stream3>
-            ? (
-                isEos<stream3> extends true
-                ? Ok<[stream3, terms]>
-                : parseError<"End of string is required.", stream3>
-            )
+            parseSingleFractionTail<stream2> extends [kind<TokenStreamKind, infer stream3>, kind<UnitsRepresentationKind, infer denominatorTerms>]
+            ? [stream3, mul<numeratorTerms, neg<denominatorTerms>>]
             : unreachable
         )
-        : unitsResult
+
+        // terms1 !single-fraction-tail
+        : [stream2, numeratorTerms]
     )
     : unreachable
 
+/** units = units-body $ */
+type parseUnits<stream extends TokenStreamKind> =
+    parseUnitsBody<stream> extends [kind<TokenStreamKind, infer stream2>, kind<UnitsRepresentationKind, infer units>]
+    ? (
+        [isEos<stream2>, stream2["diagnostics"]] extends [false, []]
+
+        // units-body !$
+        // 他の診断がない場合
+        ? [report<stream2, "End of source is required.", missingTokenPosition<stream2>>, units]
+
+        // units-body $?
+        : [stream2, units]
+    )
+    : unreachable
+
+type tokenStream<source extends string> =
+    streamFromItems<parseTokens<charStreamFromString<source>>>
+
 () => {
-    type parsed<s extends ResultKind> =
-        s extends Success<[unknown, infer value]>
-        ? value
-        : s
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    type emptyData = {}
+    type valueOrDiagnostics<result> =
+        result extends [kind<StreamKind<infer _, infer _>, infer stream>, infer value]
+        ? (
+            stream["diagnostics"] extends []
+            ? value
+            : stream["diagnostics"]
+        )
+        : result
 
-    assert<equals<
-        parsed<parseId<charStreamFromString<" a 123">>>,
-        "a"
-    >>()
+    type parseResultEq<result, expected> =
+        equals<
+            valueOrDiagnostics<result>,
+            expected
+        >
 
-    assert<equals<
-        parsed<parseId<charStreamFromString<" 123">>>,
-        Failure<"Numbers and symbols cannot be used as identifiers.", {
-            source: " 123";
-            position: 1;
-        }>
-    >>()
-
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"0">>>,
-        Nat<0>
-    >>()
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"9">>>,
-        Nat<9>
-    >>()
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"a">>>,
-        Failure<"Numbers ( 0 to 9 ) are required.", {
-            source: "a";
-            position: 0;
-        }>
+    assert<parseResultEq<
+        parseInteger<tokenStream<"-2">>,
+        Int<-2>
     >>()
 
-
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<"0">>>,
-        Int<0>
-    >>()
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<"-0">>>,
-        Int<0>
+    assert<parseResultEq<
+        parseInteger<tokenStream<"">>,
+        [UnitsDiagnostic<"Number is required.", 0, emptyData>]
     >>()
 
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<"001">>>,
-        Int<1>
-    >>()
-    type _m12 = Z.sub<Int<0>, Z.add<Int<6>, Int<6>>>
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<" -0012">>>,
-        _m12
+    assert<parseResultEq<
+        parseInteger<tokenStream<"-">>,
+        [UnitsDiagnostic<"Number is required.", 1, emptyData>]
     >>()
 
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<"">>>,
-        Failure<"Numbers ( 0 to 9 ) are required.", {
-            source: "";
-            position: 0;
-        }>
-    >>()
-    assert<equals<
-        parsed<parseInteger<charStreamFromString<"-">>>,
-        Failure<"Numbers ( 0 to 9 ) are required.", {
-            source: "-";
-            position: 1;
-        }>
+    assert<parseResultEq<
+        parseInteger<tokenStream<"">>,
+        [UnitsDiagnostic<"Number is required.", 0, emptyData>]
     >>()
 
-    assert<equals<
-        parsed<parseAsciiExponent<charStreamFromString<"^-1">>>,
+    assert<parseResultEq<
+        parseAsciiExponent<tokenStream<"^-1">>,
         Int<-1>
     >>()
 
-    assert<equals<
-        parsed<parseTerm<charStreamFromString<"m">>>,
+    assert<parseResultEq<
+        parseTerm<tokenStream<"m">>,
         { m: Int<1> }
     >>()
-    assert<equals<
-        parsed<parseTerm<charStreamFromString<" s ^ -6">>>,
+    assert<parseResultEq<
+        parseTerm<tokenStream<" s ^ -6">>,
         { s: Int<-6> }
     >>()
 
-    assert<equals<
-        parsed<parseTerms0<charStreamFromString<"">>>,
-        DimensionlessUnits
+    assert<parseResultEq<
+        parseTerms1<tokenStream<"">, never>,
+        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>]
     >>()
 
-    assert<equals<
-        parsed<parseTerms0<charStreamFromString<"m s^-2">>>,
+    assert<parseResultEq<
+        parseTerms1<tokenStream<"m s^-2">, never>,
+        { m: Int<1>, s: Int<-2> }
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m 123">>,
+        [UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 2, emptyData>]
+    >>()
+
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m s^-2">>,
         { m: Int<1>, s: Int<-2> }
     >>()
     assert<equals<
-        parsed<parseTerms0<charStreamFromString<"m123">>>,
-        { m: Int<1> }
+        valueOrDiagnostics<parseUnits<tokenStream<"s m^-2">>>,
+        valueOrDiagnostics<parseUnits<tokenStream<"s * m^-2">>>
     >>()
-
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"m s^-2">>>,
-        { m: Int<1>, s: Int<-2> }
-    >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"s m^-2">>>,
-        parsed<parseUnits<charStreamFromString<"s * m^-2">>>
-    >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"m m">>>,
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m m">>,
         { m: Int<2> }
     >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"m/s^2">>>,
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m/s^2">>,
         { m: Int<1>, s: Int<-2> }
     >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"s^">>>,
-        Failure<"End of string is required.", {
-            source: "s^";
-            position: 1;
-        }>
+    assert<parseResultEq<
+        parseUnits<tokenStream<"s^">>,
+        [UnitsDiagnostic<"Number is required.", 2, emptyData>]
     >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"/s">>>,
+    assert<parseResultEq<
+        parseUnits<tokenStream<"1/s">>,
         { s: Int<-1> }
     >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"m/">>>,
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m/1">>,
         { m: Int<1> }
     >>()
-    assert<equals<
-        parsed<parseUnits<charStreamFromString<"m/s/s">>>,
-        Failure<"End of string is required.", {
-            source: "m/s/s";
-            position: 3;
-        }>
+    assert<parseResultEq<
+        parseUnits<tokenStream<"m / s / s">>,
+        [UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 6, emptyData>]
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<"a * * b">>,
+        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 3, emptyData>]
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<" * a">>,
+        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>]
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<"a * *">>,
+        [
+            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 3, emptyData>,
+            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 5, emptyData>
+        ]
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<" / * a">>,
+        [
+            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>,
+            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 2, emptyData>
+        ]
+    >>()
+    assert<parseResultEq<
+        parseUnits<tokenStream<" / a / ">>,
+        [
+            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>,
+            UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 5, emptyData>
+        ]
     >>()
 }
 
 export type unitOrFailure<view extends UnitsViewKind> =
-    parseUnits<charStreamFromString<view>> extends infer parseResult
+    parseUnits<tokenStream<view>> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer units>]
     ? (
-        parseResult extends Ok<[infer _stream, kind<UnitsRepresentationKind, infer value>]>
-        ? normalize<value>
-        : parseResult
+        stream["diagnostics"] extends []
+        ? normalize<units>
+        : Failure<"parse error:", stream["diagnostics"]>
     )
     : unreachable
 

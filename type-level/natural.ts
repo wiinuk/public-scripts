@@ -3,7 +3,7 @@ import { cast, kind, unreachable } from "./types"
 export type NaturalKind = never[]
 export type NonZeroNaturalKind = [never, ...never[]]
 
-export type toNumber<N extends NaturalKind> = N["length"]
+export type toNumber<N extends NaturalKind> = cast<number, N["length"]>
 type naturalKind<T extends NaturalKind> = kind<NaturalKind, T>
 
 type knownNaturals = {

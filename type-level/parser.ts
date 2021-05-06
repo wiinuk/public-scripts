@@ -1,23 +1,10 @@
-import { Failure, Ok } from "./result"
 import * as String from "./string"
-
-// ---------- Error ----------
-export type ParseErrorKind = Failure<string, {
-    source: string
-    position: number
-}>
-export type parseError<message extends string, stream extends CharStreamKind> =
-    Failure<message, {
-        source: `${stream["consumed"]}${stream["remaining"]}`
-        position: String.length<stream["consumed"]>
-    }>
-
-export type mergeError<stream extends CharStreamKind, error1 extends ParseErrorKind, error2 extends ParseErrorKind> =
-    parseError<`Multiple errors:\n- ${error1["message"]}\n- ${error2["message"]}`, stream>
+import { kind } from "./types"
+import * as N from "./natural"
 
 // ---------- CharStream ----------
 export type CharStreamKind = {
-    remaining: string,
+    remaining: string
     consumed: string
 }
 type asStream<T extends CharStreamKind> = T
@@ -27,36 +14,73 @@ export type charStreamFromString<source extends string> = asStream<{
     consumed: ""
 }>
 
-export type isEos<stream extends CharStreamKind> =
-    stream["remaining"] extends "" ? true : false
+export type positionAsNat<stream extends CharStreamKind> = String.lengthAsNat<stream["consumed"]>
+export type position<stream extends CharStreamKind> = N.toNumber<positionAsNat<stream>>
 
-// --------- parsers ----------
+// --------- scanners ----------
 /** `[ ]*` */
 export type skipSpaces<stream extends CharStreamKind> = asStream<
     stream["remaining"] extends ` ${infer remaining}`
-    ? skipSpaces<{
+    ? skipSpaces<kind<CharStreamKind, {
         consumed: `${stream["consumed"]} `
         remaining: remaining
-    }>
+    }>>
     : stream
 >
 
 /** `[^targetChar]` */
-export type noneOf<stream extends CharStreamKind, targetChar extends string, customErrorMessage extends string> =
+export type noneOrUndefined<stream extends CharStreamKind, targetChar extends string> =
     stream["remaining"] extends `${infer char}${infer remaining}`
     ? (
         char extends targetChar
-        ? parseError<customErrorMessage, stream>
-        : Ok<[stream: asStream<{ remaining: remaining, consumed: `${stream["consumed"]}${char}` }>, char: char]>
+        ? undefined
+        : [stream: asStream<{ remaining: remaining, consumed: `${stream["consumed"]}${char}` }>, char: char]
     )
-    : parseError<"Any character is required.", stream>
+    : undefined
 
 /** `[targetChar]` */
-export type anyOf<stream extends CharStreamKind, targetChar extends string, customErrorMessage extends string> =
+export type anyOrUndefined<stream extends CharStreamKind, targetChar extends string> =
     stream["remaining"] extends `${infer char}${infer remaining}`
     ? (
         char extends targetChar
-        ? Ok<[stream: asStream<{ remaining: remaining, consumed: `${stream["consumed"]}${char}` }>, char: char]>
-        : parseError<customErrorMessage, stream>
+        ? [stream: asStream<{ remaining: remaining, consumed: `${stream["consumed"]}${char}` }>, char: char]
+        : undefined
     )
-    : parseError<customErrorMessage, stream>
+    : undefined
+
+// ---------- Stream ----------
+export interface StreamKind<ItemKind, DiagnosticKind> {
+    consumed: ItemKind[]
+    remaining: ItemKind[]
+    diagnostics: DiagnosticKind[]
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyStreamKind = StreamKind<any, any>
+
+export type streamFromItems<items extends unknown[]> = kind<AnyStreamKind, {
+    consumed: []
+    remaining: items
+    diagnostics: []
+}>
+
+export type isEos<stream extends AnyStreamKind> =
+    stream["remaining"] extends [] ? true : false
+
+export type pushDiagnostic<stream extends AnyStreamKind, diagnostic> =
+    kind<AnyStreamKind, {
+        consumed: stream["consumed"]
+        remaining: stream["remaining"]
+        diagnostics: [...stream["diagnostics"], diagnostic]
+    }>
+
+export type takeOrUndefined<stream extends AnyStreamKind> =
+    stream["remaining"] extends [infer item, ...infer remaining]
+    ? [
+        stream: kind<AnyStreamKind, {
+            consumed: [...stream["consumed"], item],
+            remaining: remaining,
+            diagnostics: stream["diagnostics"]
+        }>,
+        item: item
+    ]
+    : undefined

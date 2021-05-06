@@ -4,6 +4,7 @@ import { UnitsRepresentationKind } from "./type-level/units/representation"
 import * as R from "./type-level/units/representation"
 export { Unit, UnitOrNever }
 
+// eslint-disable-next-line @typescript-eslint/ban-types
 export type DimensionlessUnits = kind<UnitsKind, {}>
 export type UnitsViewKind = string
 export type UnitsKind = UnitsRepresentationKind

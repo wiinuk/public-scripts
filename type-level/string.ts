@@ -1,7 +1,7 @@
 import * as N from "./natural"
 import { kind } from "./types"
 
-type lengthAsNat<T extends string> =
+export type lengthAsNat<T extends string> =
     T extends `${infer _}${infer rest}`
     ? N.add<N.Nat<1>, lengthAsNat<rest>>
     : N.Nat<0>
