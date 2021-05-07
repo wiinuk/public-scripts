@@ -1,8 +1,21 @@
 
 export type unreachable = never
 
-/** 種注釈。種チェックされていない場所では種変換の働きをする。 */
-export type kind<ToKind, T extends ToKind> = T
+/**
+ * 種注釈
+ *
+ * @example
+ *
+ * // 種チェックと変数への代入
+ * type repeatString<xs> = xs extends kind<string, infer x0> ? [x0, x0] : "???"
+ * assert<equals<repeatString<"hey">, ["hey", "hey"]>>()
+ * assert<equals<repeatString<10>, "???">>()
+ *
+ * // 単純な種チェック
+ * type _1 = kind<number, 10>
+ * type _2 = kind<number, ""> // 型エラー
+ */
+export type kind<Kind, T extends Kind> = T
 
 /** 型を指定された種に変換する。変換できない時は never を返す */
 export type cast<ToKind, T> = T extends ToKind ? T : never

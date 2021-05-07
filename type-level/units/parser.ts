@@ -3,13 +3,13 @@ import { charStreamFromString, isEos, pushDiagnostic, streamFromItems, StreamKin
 import { Int, Integer, IntegerKind, minusSign, plusSign } from "../integer"
 import { IdToken, NaturalToken, parseTokens, TokenKind } from "./scanner"
 import { Nat, NaturalKind } from "../natural"
-import { assert } from "../assert"
 import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
 import { mul, neg, normalize, UnitsRepresentationKind } from "./representation"
 import { Failure } from "../result"
 import * as N from "../natural"
 
-interface UnitsDiagnostic<message extends string, position extends number, data> {
+/** @internal */
+export interface UnitsDiagnostic<message extends string, position extends number, data> {
     message: message
     position: position
     data: data
@@ -176,7 +176,7 @@ type parseTailTerms<stream extends TokenStreamKind, sentinelTag extends TokenKin
     : (
         // !(tail-term | sentinel) . => { id: 1 }
         takeAnyTokenAsTermOrUndefined<stream, sentinelTag> extends [kind<TokenStreamKind, infer stream>, kind<TokenKind, infer token>, kind<UnitsRepresentationKind, infer term>]
-        ? [report<stream, "An unanticipated token. Unit name or 1 is required.", token["range"]["start"]>, mul<terms, term>]
+        ? [report<stream, "Unexpected token. Unit name or 1 is required.", token["range"]["start"]>, mul<terms, term>]
 
         // !tail-term =(sentinel | $)
         : [stream, terms]
@@ -227,152 +227,26 @@ type parseUnitsBody<stream extends TokenStreamKind> =
     )
     : unreachable
 
-/** units = units-body $ */
-type parseUnits<stream extends TokenStreamKind> =
+/**
+ * units = units-body $
+ * @internal
+ */
+export type parseUnits<stream extends TokenStreamKind> =
     parseUnitsBody<stream> extends [kind<TokenStreamKind, infer stream2>, kind<UnitsRepresentationKind, infer units>]
     ? (
         [isEos<stream2>, stream2["diagnostics"]] extends [false, []]
 
-        // units-body !$
-        // 他の診断がない場合
+        // units-body !$ ( 他の診断がない場合 )
         ? [report<stream2, "End of source is required.", missingTokenPosition<stream2>>, units]
 
-        // units-body $?
+        // units-body $
+        // units-body !$ ( 他の診断がある場合 )
         : [stream2, units]
     )
     : unreachable
 
 type tokenStream<source extends string> =
     streamFromItems<parseTokens<charStreamFromString<source>>>
-
-() => {
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    type emptyData = {}
-    type valueOrDiagnostics<result> =
-        result extends [kind<StreamKind<infer _, infer _>, infer stream>, infer value]
-        ? (
-            stream["diagnostics"] extends []
-            ? value
-            : stream["diagnostics"]
-        )
-        : result
-
-    type parseResultEq<result, expected> =
-        equals<
-            valueOrDiagnostics<result>,
-            expected
-        >
-
-    assert<parseResultEq<
-        parseInteger<tokenStream<"-2">>,
-        Int<-2>
-    >>()
-
-    assert<parseResultEq<
-        parseInteger<tokenStream<"">>,
-        [UnitsDiagnostic<"Number is required.", 0, emptyData>]
-    >>()
-
-    assert<parseResultEq<
-        parseInteger<tokenStream<"-">>,
-        [UnitsDiagnostic<"Number is required.", 1, emptyData>]
-    >>()
-
-    assert<parseResultEq<
-        parseInteger<tokenStream<"">>,
-        [UnitsDiagnostic<"Number is required.", 0, emptyData>]
-    >>()
-
-    assert<parseResultEq<
-        parseAsciiExponent<tokenStream<"^-1">>,
-        Int<-1>
-    >>()
-
-    assert<parseResultEq<
-        parseTerm<tokenStream<"m">>,
-        { m: Int<1> }
-    >>()
-    assert<parseResultEq<
-        parseTerm<tokenStream<" s ^ -6">>,
-        { s: Int<-6> }
-    >>()
-
-    assert<parseResultEq<
-        parseTerms1<tokenStream<"">, never>,
-        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>]
-    >>()
-
-    assert<parseResultEq<
-        parseTerms1<tokenStream<"m s^-2">, never>,
-        { m: Int<1>, s: Int<-2> }
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m 123">>,
-        [UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 2, emptyData>]
-    >>()
-
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m s^-2">>,
-        { m: Int<1>, s: Int<-2> }
-    >>()
-    assert<equals<
-        valueOrDiagnostics<parseUnits<tokenStream<"s m^-2">>>,
-        valueOrDiagnostics<parseUnits<tokenStream<"s * m^-2">>>
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m m">>,
-        { m: Int<2> }
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m/s^2">>,
-        { m: Int<1>, s: Int<-2> }
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"s^">>,
-        [UnitsDiagnostic<"Number is required.", 2, emptyData>]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"1/s">>,
-        { s: Int<-1> }
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m/1">>,
-        { m: Int<1> }
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"m / s / s">>,
-        [UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 6, emptyData>]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"a * * b">>,
-        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 3, emptyData>]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<" * a">>,
-        [UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<"a * *">>,
-        [
-            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 3, emptyData>,
-            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 5, emptyData>
-        ]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<" / * a">>,
-        [
-            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>,
-            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 2, emptyData>
-        ]
-    >>()
-    assert<parseResultEq<
-        parseUnits<tokenStream<" / a / ">>,
-        [
-            UnitsDiagnostic<"Unit name or 1 ( for dimensionless ) is required.", 0, emptyData>,
-            UnitsDiagnostic<"An unanticipated token. Unit name or 1 is required.", 5, emptyData>
-        ]
-    >>()
-}
 
 export type unitOrFailure<view extends UnitsViewKind> =
     parseUnits<tokenStream<view>> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer units>]

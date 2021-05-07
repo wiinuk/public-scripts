@@ -1,1 +1,3 @@
-export const assert = <_T extends true>() => { /* type level assertion */ }
+export const assert = <_T extends true>() => {
+    // 型レベルのアサーション関数
+}

@@ -17,8 +17,8 @@ export abstract class NumberWith<U extends UnitsKind> {
     private constructor() { /* 派生クラスからもインスタンスを生成できないようにする */ }
     protected _phantomU = null as unknown as Identity<U>
 }
-export const unit = <TView extends UnitsViewKind>(_view: TView): Identity<Unit<TView>> => x => x
-export const unitOrNever = <TView extends UnitsViewKind>(_view: TView): Identity<UnitOrNever<TView>> => x => x
+export const unit = <TView extends UnitsViewKind>(_view: TView): Identity<Unit<TView>> => identity
+export const unitOrNever = <TView extends UnitsViewKind>(_view: TView): Identity<UnitOrNever<TView>> => identity
 
 export const measure = <TUnits extends UnitsKind>(value: number, _unitsType: Identity<TUnits>) => value as unknown as NumberWith<TUnits>
 export const withoutMeasure = <TUnits extends UnitsKind>(value: NumberWith<TUnits>) => value as unknown as number

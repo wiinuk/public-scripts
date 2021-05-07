@@ -41,7 +41,7 @@ export type divMod<n1 extends NaturalKind, n2 extends NonZeroNaturalKind> =
         ? [quotient: add<q, Nat<1>>, remainder: r]
         : unreachable
     )
-    : [quotient: Nat<0>, remainder: n1];
+    : [quotient: Nat<0>, remainder: n1]
 
 export type div<N1 extends NaturalKind, N2 extends NonZeroNaturalKind> = divMod<N1, N2>[0]
 export type mod<N1 extends NaturalKind, N2 extends NonZeroNaturalKind> = divMod<N1, N2>[1]

@@ -1,23 +1,22 @@
-import { cast, equals, kind, unreachable } from "../types"
-import { anyOrUndefined, noneOrUndefined, skipSpaces, charStreamFromString, CharStreamKind, position, positionAsNat } from "../parser"
+import { cast, kind, unreachable } from "../types"
+import { anyOrUndefined, noneOrUndefined, skipSpaces, CharStreamKind, position, positionAsNat } from "../parser"
 import * as N from "../natural"
 import { NaturalKind, Nat } from "../natural"
-import { assert } from "../assert"
 import * as Syntax from "./syntax"
 
-interface Range<start extends number, end extends number> {
+export interface Range<start extends number, end extends number> {
     start: start
     end: end
 }
-type RangeKind = Range<number, number>
+export type RangeKind = Range<number, number>
 
 interface Token<tag extends string, value, range extends RangeKind> {
     tag: tag
     value: value
     range: range
 }
-type SymbolToken<op extends symbols, range extends RangeKind> = Token<op, undefined, range>
-type SymbolTokenKind = SymbolToken<symbols, RangeKind>
+export type SymbolToken<op extends symbols, range extends RangeKind> = Token<op, undefined, range>
+export type SymbolTokenKind = SymbolToken<symbols, RangeKind>
 export type NaturalToken<value extends NaturalKind, range extends RangeKind> = Token<"Natural", value, range>
 export type NaturalTokenKind = NaturalToken<NaturalKind, RangeKind>
 export type IdToken<value extends string, range extends RangeKind> = Token<"Id", value, range>
@@ -110,12 +109,6 @@ type parseNatural<stream extends CharStreamKind, current extends NaturalKind> =
     ? parseDigits0<stream2, N.add<N.mul<current, _10N>, digit>>
     : undefined
 
-/* `(?<integer> \-? \k<digits1>)` */
-// type parseInteger<stream extends CharStreamKind> =
-//     anyOrUndefined<stream, minus> extends [kind<CharStreamKind, infer stream3>, infer _char]
-//     ? parseDigits1<stream3, "-", Nat<0>>
-//     : parseDigits1<stream, "+", Nat<0>>
-
 /**
 ```regexp
 (?<unicode-superscript-integer>
@@ -176,63 +169,3 @@ type parseTokensWorker<stream extends CharStreamKind> =
     : []
 
 export type parseTokens<stream extends CharStreamKind> = parseTokensWorker<skipSpaces<stream>>
-
-() => {
-    type parsed<s> =
-        s extends [infer _, infer value]
-        ? value
-        : s
-
-    assert<equals<
-        parsed<parseId<charStreamFromString<"a 123">>>,
-        "a"
-    >>()
-
-    assert<equals<
-        parsed<parseId<skipSpaces<charStreamFromString<" 123">>>>,
-        undefined
-    >>()
-
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"0">>>,
-        Nat<0>
-    >>()
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"9">>>,
-        Nat<9>
-    >>()
-    assert<equals<
-        parsed<parseDigit<charStreamFromString<"a">>>,
-        undefined
-    >>()
-
-
-    assert<equals<
-        parsed<parseNatural<charStreamFromString<"0">, Nat<0>>>,
-        Nat<0>
-    >>()
-
-    assert<equals<
-        parseTokens<charStreamFromString<"-0">>,
-        [SymbolToken<minus, Range<0, 1>>, NaturalToken<Nat<0>, Range<1, 2>>]
-    >>()
-
-    assert<equals<
-        parsed<parseNatural<charStreamFromString<"001">, Nat<0>>>,
-        Nat<1>
-    >>()
-    type _m12 = N.add<Nat<6>, Nat<6>>
-    assert<equals<
-        parseTokens<charStreamFromString<"-0012">>,
-        [SymbolToken<minus, Range<0, 1>>, NaturalToken<_m12, Range<1, 5>>]
-    >>()
-
-    assert<equals<
-        parseNatural<charStreamFromString<"">, Nat<0>>,
-        undefined
-    >>()
-    assert<equals<
-        parseTokens<charStreamFromString<"-">>,
-        [SymbolToken<minus, Range<0, 1>>]
-    >>()
-}
