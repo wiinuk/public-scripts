@@ -1,5 +1,6 @@
 import * as N from "./natural"
 import { Nat, NaturalKind } from "./natural"
+import { recursiveKey, unwrapRecursiveObject } from "./recursive-object"
 import { kind } from "./types"
 
 type _16n = N.add<Nat<8>, Nat<8>>
@@ -20,10 +21,18 @@ export type interpolatable = string | number | bigint | boolean | null | undefin
 
 type joinWorker<items extends interpolatable[], separator extends interpolatable, result extends string> =
     items extends [kind<interpolatable, infer item>, ...kind<interpolatable[], infer rest>]
-    ? joinWorker<rest, separator, `${result}${separator}${item}`>
+    ? { [recursiveKey]: joinWorker<rest, separator, `${result}${separator}${item}`> }
     : result
 
 export type join<items extends interpolatable[], separator extends interpolatable = ", "> =
     items extends [kind<interpolatable, infer head>, ...kind<interpolatable[], infer rest>]
-    ? joinWorker<rest, separator, `${head}`>
+    ? unwrapRecursiveObject<joinWorker<rest, separator, `${head}`>>
     : ""
+
+type toCharsAsRecursiveObject<chars extends string, result extends string[]> =
+    chars extends `${infer char}${infer rest}`
+    ? { [recursiveKey]: toCharsAsRecursiveObject<rest, [...result, char]> }
+    : result
+
+export type toChars<chars extends string> =
+    unwrapRecursiveObject<toCharsAsRecursiveObject<chars, []>>
