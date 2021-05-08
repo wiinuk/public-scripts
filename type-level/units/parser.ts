@@ -3,7 +3,7 @@ import { charStreamFromString, isEos, pushDiagnostic, streamFromItems, StreamKin
 import { Int, Integer, IntegerKind, minusSign, plusSign } from "../integer"
 import { IdToken, NaturalToken, parseTokens, RangeKind, Range, TokenKind } from "./scanner"
 import { Nat, NaturalKind } from "../natural"
-import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
+import { DefaultDiagnosticMessageTable, DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
 import { mul, neg, normalize, UnitsRepresentationKind } from "./representation"
 import { Failure } from "../result"
 import * as N from "../natural"
@@ -25,14 +25,6 @@ export interface ParserContextKind {
     diagnosticMessageTable: { [k in keyof DefaultDiagnosticMessageTable]: string }
 }
 
-export interface DefaultDiagnosticMessageTable {
-    Number_is_required: "Number is required."
-    Circumflex_is_required: "Circumflex ( ^ ) is required."
-    Unit_name_or_1_is_required: "Unit name or 1 ( for dimensionless ) is required."
-    Unexpected_token__Unit_name_or_1_is_required: "Unexpected token. Unit name or 1 is required."
-    Fraction_symbol_required: "Fraction symbol ( / ) required."
-    End_of_source_is_required: "End of source is required."
-}
 type MessageIdKind = keyof DefaultDiagnosticMessageTable
 
 /*
@@ -351,10 +343,8 @@ type buildErrorMessage<source extends UnitsViewKind, diagnostics extends TokenSt
 type tokenStream<source extends string, context extends ParserContextKind> =
     streamFromItems<parseTokens<charStreamFromString<source>>, context>
 
-export interface DefaultParserContext extends ParserContextKind {
-    diagnosticMessageTable: DefaultDiagnosticMessageTable
-}
-export type unitOrFailure<view extends UnitsViewKind, context extends ParserContextKind = DefaultParserContext> =
+/** @internal */
+export type unitOrFailure<view extends UnitsViewKind, context extends ParserContextKind> =
     parseUnits<tokenStream<view, context>> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer units>]
     ? (
         stream["diagnostics"] extends []
@@ -363,5 +353,6 @@ export type unitOrFailure<view extends UnitsViewKind, context extends ParserCont
     )
     : unreachable
 
-export type unitOrNever<view extends UnitsViewKind> =
-    cast<UnitsRepresentationKind, unitOrFailure<view>>
+/** @internal */
+export type unitOrNever<view extends UnitsViewKind, context extends ParserContextKind> =
+    cast<UnitsRepresentationKind, unitOrFailure<view, context>>

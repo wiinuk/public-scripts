@@ -74,7 +74,8 @@ export interface StreamKind<ItemKind, DiagnosticKind, ContextKind> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyStreamKind = StreamKind<any, any, any>
 
-export type streamFromItems<items extends unknown[], context = null> = kind<AnyStreamKind, {
+/** @internal */
+export type streamFromItems<items extends unknown[], context> = kind<AnyStreamKind, {
     consumed: []
     remaining: items
     diagnostics: []
