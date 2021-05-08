@@ -1,5 +1,5 @@
 import * as String from "./string"
-import { kind } from "./types"
+import { kind, unreachable } from "./types"
 import * as N from "./natural"
 
 // ---------- CharStream ----------
@@ -18,15 +18,31 @@ export type positionAsNat<stream extends CharStreamKind> = String.lengthAsNat<st
 export type position<stream extends CharStreamKind> = N.toNumber<positionAsNat<stream>>
 
 // --------- scanners ----------
+type takeSpacesWorker<spaces extends string, rest extends string> =
+    rest extends ` ${infer rest2}`
+    ? (
+        rest extends `                                ${infer rest}`
+        ? takeSpacesWorker<`${spaces}                                `, rest> :
+        rest extends `                ${infer rest}`
+        ? takeSpacesWorker<`${spaces}                `, rest> :
+        rest extends `        ${infer rest}`
+        ? takeSpacesWorker<`${spaces}        `, rest> :
+        rest extends `    ${infer rest}`
+        ? takeSpacesWorker<`${spaces}    `, rest> :
+        rest extends `  ${infer rest}`
+        ? takeSpacesWorker<`${spaces}  `, rest> :
+        takeSpacesWorker<`${spaces} `, rest2>
+    )
+    : [spaces: spaces, rest: rest]
+
 /** `[ ]*` */
-export type skipSpaces<stream extends CharStreamKind> = asStream<
-    stream["remaining"] extends ` ${infer remaining}`
-    ? skipSpaces<kind<CharStreamKind, {
-        consumed: `${stream["consumed"]} `
+export type skipSpaces<stream extends CharStreamKind> =
+    takeSpacesWorker<"", stream["remaining"]> extends [kind<string, infer spaces>, kind<string, infer remaining>]
+    ? kind<CharStreamKind, {
+        consumed: `${stream["consumed"]}${spaces}`
         remaining: remaining
-    }>>
-    : stream
->
+    }>
+    : unreachable
 
 /** `[^targetChar]` */
 export type noneOrUndefined<stream extends CharStreamKind, targetChar extends string> =

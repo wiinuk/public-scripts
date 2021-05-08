@@ -1,11 +1,19 @@
 import * as N from "./natural"
+import { Nat, NaturalKind } from "./natural"
 import { kind } from "./types"
 
-export type lengthAsNat<T extends string> =
-    T extends `${infer _}${infer rest}`
-    ? N.add<N.Nat<1>, lengthAsNat<rest>>
-    : N.Nat<0>
+type _16n = N.add<Nat<8>, Nat<8>>
+type _32n = N.add<_16n, _16n>
+type lengthAsNatWorker<T extends string, n extends NaturalKind> =
+    T extends `${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<_32n, n>> :
+    T extends `${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<_16n, n>> :
+    T extends `${string}${string}${string}${string}${string}${string}${string}${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<Nat<8>, n>> :
+    T extends `${string}${string}${string}${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<Nat<4>, n>> :
+    T extends `${string}${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<Nat<2>, n>> :
+    T extends `${string}${infer rest}` ? lengthAsNatWorker<rest, N.add<Nat<1>, n>> :
+    n
 
+export type lengthAsNat<T extends string> = lengthAsNatWorker<T, Nat<0>>
 export type length<T extends string> = N.toNumber<lengthAsNat<T>>
 
 export type interpolatable = string | number | bigint | boolean | null | undefined

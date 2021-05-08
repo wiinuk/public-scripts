@@ -3,6 +3,7 @@ import { anyOrUndefined, noneOrUndefined, skipSpaces, CharStreamKind, position, 
 import * as N from "../natural"
 import { NaturalKind, Nat } from "../natural"
 import * as Syntax from "./syntax"
+import { recursiveKey, unwrapRecursiveObject } from "../recursive-object"
 
 export interface Range<start extends number, end extends number> {
     start: start
@@ -128,44 +129,66 @@ type parseUnicodeSuperscriptInteger<stream extends CharStreamKind> =
     undefined
 
 type peekCharOrUndefined<stream extends CharStreamKind> =
-    stream["remaining"] extends `${infer char}${infer _remaining}` ? char : undefined
+    stream["remaining"] extends `${infer char}${string}` ? char : undefined
 
 type skipCharOrNop<stream extends CharStreamKind> =
     stream["remaining"] extends `${infer char}${infer remaining}`
     ? kind<CharStreamKind, { remaining: remaining, consumed: `${stream["consumed"]}${char}` }>
     : stream
 
-type parseTokensWorker<stream extends CharStreamKind> =
+type currentCharRange<stream extends CharStreamKind> = Range<position<stream>, N.toNumber<N.add<positionAsNat<stream>, Nat<1>>>>
+
+type makeSymbolToken<stream extends CharStreamKind, char extends symbols> =
+    cast<TokenKind, Token<char, undefined, currentCharRange<stream>>>
+
+type parseTokenOrUndefined<stream extends CharStreamKind> =
     peekCharOrUndefined<stream> extends kind<string, infer char>
+
+    // .
     ? (
         char extends symbols
-        ? [
-            cast<TokenKind,
-                Token<
-                    char,
-                    undefined,
-                    Range<
-                        position<stream>,
-                        N.toNumber<N.add<positionAsNat<stream>, Nat<1>>>
-                    >
-                >
-            >,
-            ...parseTokensWorker<skipSpaces<skipCharOrNop<stream>>>
-        ]
+
+        // \k<symbols>
+        ? [stream: skipSpaces<skipCharOrNop<stream>>, token: makeSymbolToken<stream, char>]
+
         : (
             char extends asciiDigits
+
+            // [0-9]
             ? (
                 parseNatural<stream, Nat<0>> extends [kind<CharStreamKind, infer stream2>, kind<NaturalKind, infer natural>]
-                ? [kind<NaturalTokenKind, NaturalToken<natural, Range<position<stream>, position<stream2>>>>, ...parseTokensWorker<skipSpaces<stream2>>]
+                ? [stream: skipSpaces<stream2>, token: NaturalToken<natural, Range<position<stream>, position<stream2>>>]
                 : unreachable
             )
+
+            // (?! \k<symbols>|[0-9]) .
             : (
                 parseId<stream> extends [kind<CharStreamKind, infer stream2>, kind<string, infer id>]
-                ? [kind<IdTokenKind, IdToken<id, Range<position<stream>, position<stream2>>>>, ...parseTokensWorker<skipSpaces<stream2>>]
+                ? [stream: skipSpaces<stream2>, token: IdToken<id, Range<position<stream>, position<stream2>>>]
                 : unreachable
             )
         )
     )
-    : []
 
-export type parseTokens<stream extends CharStreamKind> = parseTokensWorker<skipSpaces<stream>>
+    // $
+    : undefined
+
+type parseTokensAsRecursiveObject<stream extends CharStreamKind, tokens extends TokenKind[]> =
+
+    // なぜか stream を再帰オブジェクト内で使うと型エラーが発生するので
+    // ここで分解してから再構築する
+    stream extends { consumed: infer consumed, remaining: infer remaining }
+    ? {
+        [recursiveKey]:
+        { remaining: remaining, consumed: consumed } extends kind<CharStreamKind, infer stream2>
+        ? (
+            parseTokenOrUndefined<stream2> extends [kind<CharStreamKind, infer stream3>, kind<TokenKind, infer token>]
+            ? parseTokensAsRecursiveObject<stream3, [...tokens, token]>
+            : tokens
+        )
+        : unreachable
+    }
+    : unreachable
+
+export type parseTokens<stream extends CharStreamKind> =
+    unwrapRecursiveObject<parseTokensAsRecursiveObject<skipSpaces<stream>, []>>
