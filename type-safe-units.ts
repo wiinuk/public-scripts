@@ -2,6 +2,7 @@ import { identity, Identity, kind } from "./type-level/types"
 import { unitOrFailure as Unit, unitOrNever as UnitOrNever } from "./type-level/units/parser"
 import { UnitsRepresentationKind } from "./type-level/units/representation"
 import * as R from "./type-level/units/representation"
+import { FailureKind } from "./type-level/result"
 export { Unit, UnitOrNever }
 
 // eslint-disable-next-line @typescript-eslint/ban-types
@@ -20,7 +21,15 @@ export abstract class NumberWith<U extends UnitsKind> {
 export const unit = <TView extends UnitsViewKind>(_view: TView): Identity<Unit<TView>> => identity
 export const unitOrNever = <TView extends UnitsViewKind>(_view: TView): Identity<UnitOrNever<TView>> => identity
 
-export const measure = <TUnits extends UnitsKind>(value: number, _unitsType: Identity<TUnits>) => value as unknown as NumberWith<TUnits>
+type checkedViewOrFailure<view extends UnitsViewKind> = Unit<view> extends kind<FailureKind, infer failure> ? failure : view
+
+export type Measure<TView extends UnitsViewKind> =
+    Unit<TView> extends kind<FailureKind, infer failure>
+    ? failure
+    : NumberWith<UnitOrNever<TView>>
+
+export const numberWith = <TUnit extends UnitsKind>(value: number, _units: Identity<TUnit>) => value as unknown as NumberWith<TUnit>
+export const measure = <TView extends UnitsViewKind>(value: number, _unitsView: checkedViewOrFailure<TView>) => value as unknown as NumberWith<UnitOrNever<TView>>
 export const withoutMeasure = <TUnits extends UnitsKind>(value: NumberWith<TUnits>) => value as unknown as number
 export const measure1 = (value: number) => value as unknown as NumberWith<DimensionlessUnits>
 
@@ -37,4 +46,4 @@ export const div = <U1 extends UnitsKind, U2 extends UnitsKind>(v1: NumberWith<U
     (v1 as unknown as number) / (v2 as unknown as number) as unknown as NumberWith<R.div<U1, U2>>
 
 export const sqrt = <U extends UnitsKind>(x: NumberWith<R.mul<U, U>>) =>
-    measure<U>(Math.sqrt(withoutMeasure(x)), identity)
+    numberWith<U>(Math.sqrt(withoutMeasure(x)), identity)
