@@ -19,7 +19,21 @@ export interface UnitsDiagnostic<message extends string, range extends RangeKind
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type UnitsDiagnosticKind = UnitsDiagnostic<any, any, any>
-type TokenStreamKind = StreamKind<TokenKind, UnitsDiagnosticKind>
+type TokenStreamKind = StreamKind<TokenKind, UnitsDiagnosticKind, ParserContextKind>
+
+export interface ParserContextKind {
+    diagnosticMessageTable: { [k in keyof DefaultDiagnosticMessageTable]: string }
+}
+
+export interface DefaultDiagnosticMessageTable {
+    Number_is_required: "Number is required."
+    Circumflex_is_required: "Circumflex ( ^ ) is required."
+    Unit_name_or_1_is_required: "Unit name or 1 ( for dimensionless ) is required."
+    Unexpected_token__Unit_name_or_1_is_required: "Unexpected token. Unit name or 1 is required."
+    Fraction_symbol_required: "Fraction symbol ( / ) required."
+    End_of_source_is_required: "End of source is required."
+}
+type MessageIdKind = keyof DefaultDiagnosticMessageTable
 
 /*
  * type source = "-  abc"
@@ -49,8 +63,8 @@ type takeTokenValueOrUndefined<tag extends TokenKind["tag"], stream extends Toke
     : undefined
 
 // eslint-disable-next-line @typescript-eslint/ban-types
-type report<stream extends TokenStreamKind, message extends string, range extends RangeKind, data = {}> =
-    pushDiagnostic<stream, UnitsDiagnostic<message, range, data>>
+type report<stream extends TokenStreamKind, messageId extends MessageIdKind, range extends RangeKind, data = {}> =
+    pushDiagnostic<stream, UnitsDiagnostic<stream["context"]["diagnosticMessageTable"][messageId], range, data>>
 
 type anyTokenAsId<token extends TokenKind> = {
     "Id": token extends IdToken<infer id, infer _range> ? id : unreachable
@@ -85,7 +99,7 @@ type parseInteger<stream extends TokenStreamKind> =
         ? [stream, Integer<minusSign, natural>]
 
         // Minus !Natural => -1
-        : [report<stream, "Number is required.", missingTokenRange<stream>>, Int<-1>]
+        : [report<stream, "Number_is_required", missingTokenRange<stream>>, Int<-1>]
     )
     : (
         // Natural
@@ -93,7 +107,7 @@ type parseInteger<stream extends TokenStreamKind> =
         ? [stream, Integer<plusSign, natural>]
 
         // !Natural => 1
-        : [report<stream, "Number is required.", missingTokenRange<stream>>, Int<1>]
+        : [report<stream, "Number_is_required", missingTokenRange<stream>>, Int<1>]
     )
 
 /** ascii-exponent = Circumflex integer)` */
@@ -104,7 +118,7 @@ type parseAsciiExponent<stream extends TokenStreamKind> =
     ? parseInteger<stream>
 
     // !Circumflex => 1
-    : [report<stream, "Circumflex ( ^ ) is required.", missingTokenRange<stream>>, Int<1>]
+    : [report<stream, "Circumflex_is_required", missingTokenRange<stream>>, Int<1>]
 
 type isAsciiExponentStart<stream extends TokenStreamKind> =
     currentTokenKindIs<"^", stream>
@@ -140,7 +154,7 @@ type parseTerm<stream extends TokenStreamKind> =
         ? [stream, DimensionlessUnits]
 
         // !(id | 1) => {}
-        : [report<stream, "Unit name or 1 ( for dimensionless ) is required.", missingTokenRange<stream>>, DimensionlessUnits]
+        : [report<stream, "Unit_name_or_1_is_required", missingTokenRange<stream>>, DimensionlessUnits]
     )
 
 type isTermStart<stream extends TokenStreamKind> =
@@ -179,7 +193,7 @@ type parseTailTerms<stream extends TokenStreamKind, sentinelTag extends TokenKin
     : (
         // !(tail-term | sentinel) . => { id: 1 }
         takeAnyTokenAsTermOrUndefined<stream, sentinelTag> extends [kind<TokenStreamKind, infer stream>, kind<TokenKind, infer token>, kind<UnitsRepresentationKind, infer term>]
-        ? [report<stream, "Unexpected token. Unit name or 1 is required.", token["range"]>, mul<terms, term>]
+        ? [report<stream, "Unexpected_token__Unit_name_or_1_is_required", token["range"]>, mul<terms, term>]
 
         // !tail-term =(sentinel | $)
         : [stream, terms]
@@ -197,7 +211,7 @@ type parseTerms1<stream extends TokenStreamKind, sentinelTag extends TokenKind["
     )
 
     // !(term | sentinel) . => {}
-    : [report<stream, "Unit name or 1 ( for dimensionless ) is required.", missingTokenRange<stream>>, DimensionlessUnits]
+    : [report<stream, "Unit_name_or_1_is_required", missingTokenRange<stream>>, DimensionlessUnits]
 
 /** single-fraction-tail = Slash terms1 */
 type parseSingleFractionTail<stream extends TokenStreamKind> =
@@ -207,7 +221,7 @@ type parseSingleFractionTail<stream extends TokenStreamKind> =
     ? parseTerms1<stream, never>
 
     // !Slash => {}
-    : [report<stream, `Fraction symbol ( / ) required.`, missingTokenRange<stream>>, DimensionlessUnits]
+    : [report<stream, "Fraction_symbol_required", missingTokenRange<stream>>, DimensionlessUnits]
 
 type isSingleFractionTailStart<stream extends TokenStreamKind> =
     currentTokenKindIs<"/", stream>
@@ -240,7 +254,7 @@ export type parseUnits<stream extends TokenStreamKind> =
         [isEos<stream2>, stream2["diagnostics"]] extends [false, []]
 
         // units-body !$ ( 他の診断がない場合 )
-        ? [report<stream2, "End of source is required.", missingTokenRange<stream2>>, units]
+        ? [report<stream2, "End_of_source_is_required", missingTokenRange<stream2>>, units]
 
         // units-body $
         // units-body !$ ( 他の診断がある場合 )
@@ -334,11 +348,14 @@ type pushMessages<remaining extends TokenStreamKind["diagnostics"], buffer exten
 type buildErrorMessage<source extends UnitsViewKind, diagnostics extends TokenStreamKind["diagnostics"]> =
     messageBufferToString<pushMessages<diagnostics, createMessageBuffer<source>>>
 
-type tokenStream<source extends string> =
-    streamFromItems<parseTokens<charStreamFromString<source>>>
+type tokenStream<source extends string, context extends ParserContextKind> =
+    streamFromItems<parseTokens<charStreamFromString<source>>, context>
 
-export type unitOrFailure<view extends UnitsViewKind> =
-    parseUnits<tokenStream<view>> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer units>]
+export interface DefaultParserContext extends ParserContextKind {
+    diagnosticMessageTable: DefaultDiagnosticMessageTable
+}
+export type unitOrFailure<view extends UnitsViewKind, context extends ParserContextKind = DefaultParserContext> =
+    parseUnits<tokenStream<view, context>> extends [kind<TokenStreamKind, infer stream>, kind<UnitsRepresentationKind, infer units>]
     ? (
         stream["diagnostics"] extends []
         ? normalize<units>

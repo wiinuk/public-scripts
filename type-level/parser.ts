@@ -65,18 +65,20 @@ export type anyOrUndefined<stream extends CharStreamKind, targetChar extends str
     : undefined
 
 // ---------- Stream ----------
-export interface StreamKind<ItemKind, DiagnosticKind> {
+export interface StreamKind<ItemKind, DiagnosticKind, ContextKind> {
     consumed: ItemKind[]
     remaining: ItemKind[]
     diagnostics: DiagnosticKind[]
+    context: ContextKind
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyStreamKind = StreamKind<any, any>
+type AnyStreamKind = StreamKind<any, any, any>
 
-export type streamFromItems<items extends unknown[]> = kind<AnyStreamKind, {
+export type streamFromItems<items extends unknown[], context = null> = kind<AnyStreamKind, {
     consumed: []
     remaining: items
     diagnostics: []
+    context: context
 }>
 
 export type isEos<stream extends AnyStreamKind> =
@@ -87,6 +89,7 @@ export type pushDiagnostic<stream extends AnyStreamKind, diagnostic> =
         consumed: stream["consumed"]
         remaining: stream["remaining"]
         diagnostics: [...stream["diagnostics"], diagnostic]
+        context: stream["context"]
     }>
 
 export type takeOrUndefined<stream extends AnyStreamKind> =
@@ -96,6 +99,7 @@ export type takeOrUndefined<stream extends AnyStreamKind> =
             consumed: [...stream["consumed"], item],
             remaining: remaining,
             diagnostics: stream["diagnostics"]
+            context: stream["context"]
         }>,
         item: item
     ]
