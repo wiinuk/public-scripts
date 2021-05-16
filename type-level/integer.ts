@@ -75,3 +75,6 @@ export type sub<z1 extends IntegerKind, z2 extends IntegerKind> =
         ? Integer<"-", N.add<z1["abs"], z2["abs"]>>
         : subNonZero<z2["abs"], z1["abs"]>
     )
+
+export type mul<z1 extends IntegerKind, z2 extends IntegerKind> =
+    Integer<z1["sign"] extends z2["sign"] ? plusSign : minusSign, N.mul<z1["abs"], z2["abs"]>>
