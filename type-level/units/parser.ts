@@ -1,12 +1,13 @@
-import { cast, equals, kind, unreachable } from "../types"
+import { cast, kind, unreachable } from "../types"
 import { charStreamFromString, isEos, pushDiagnostic, streamFromItems, StreamKind, takeOrUndefined } from "../parser"
 import { Int, Integer, IntegerKind, minusSign, plusSign } from "../integer"
-import { IdToken, NaturalToken, parseTokens, RangeKind, Range, TokenKind } from "./scanner"
-import { Nat, NaturalKind } from "../natural"
-import { DefaultDiagnosticMessageTable, DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
+import { IdToken, NaturalToken, parseTokens, RangeKind, Range, TokenKind, IdTokenKind, SymbolToken } from "./scanner"
+import { Nat } from "../natural"
+import { DimensionlessUnits, UnitsViewKind } from "../../type-safe-units"
 import { mul, neg, normalize, UnitsRepresentationKind } from "./representation"
 import { Failure } from "../result"
 import * as N from "../natural"
+import * as Z from "../integer"
 import { buildErrorMessage } from "./message-builder"
 
 /** @internal */
@@ -19,11 +20,38 @@ export interface UnitsDiagnostic<message extends string, range extends RangeKind
 export type UnitsDiagnosticKind = UnitsDiagnostic<any, any, any>
 type TokenStreamKind = StreamKind<TokenKind, UnitsDiagnosticKind, ParserContextKind>
 
-export interface ParserContextKind {
-    diagnosticMessageTable: { [k in keyof DefaultDiagnosticMessageTable]: string }
-}
+/** 式 `unitName^1` の省略形 */
+export type UnitSimpleAliasKind = string
+export type UnitDefinitionKind = null
+export type UnitExponentTermKind = [id: string, exponent: IntegerKind]
+export type UnitTermKind =
+    | UnitSimpleAliasKind
+    | UnitExponentTermKind
 
-type MessageIdKind = keyof DefaultDiagnosticMessageTable
+export type UnitExpressionKind = UnitTermKind[]
+export type UnitSpecificationKind =
+    | UnitDefinitionKind
+    | UnitSimpleAliasKind
+    | UnitExpressionKind
+
+export type UnitSystemKind = {
+    [name: string]: UnitSpecificationKind
+}
+export interface ParserContextKind {
+    diagnosticMessageTable: { [messageId: string]: string }
+    unitSystem: UnitSystemKind
+}
+type defaultDiagnosticMessageTable = {
+    Number_is_required: "Number is required."
+    Exponent_symbol_is_required: "Exponent symbol ( ^ ) is required."
+    Unit_name_or_1_is_required: "Unit name or '1' ( for dimensionless ) is required."
+    Unexpected_token__Unit_name_or_1_is_required: "Unexpected token. Unit name or '1' is required."
+    Fraction_symbol_required: "Fraction symbol ( / ) required."
+    End_of_source_is_required: "End of source is required."
+    Units_include_circular_references: "Units include circular references."
+    internal_error: "internal error"
+}
+type MessageIdKind = keyof defaultDiagnosticMessageTable
 
 /*
  * type source = "-  abc"
@@ -42,19 +70,114 @@ type currentTokenKindIs<tag extends TokenKind["tag"], stream extends TokenStream
     ? (token["tag"] extends tag ? true : false)
     : false
 
-/** `equals<currentToken["tag"], tag>` なら currentToken["value"] を返す */
-type takeTokenValueOrUndefined<tag extends TokenKind["tag"], stream extends TokenStreamKind> =
-    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream2>, kind<TokenKind, infer token>]
-    ? (
-        equals<token["tag"], tag> extends true
-        ? [stream2, token["value"]]
-        : undefined
-    )
-    : undefined
+type getMessageOrDefault<table extends ParserContextKind["diagnosticMessageTable"], id extends MessageIdKind> =
+    id extends keyof table
+    ? table[id]
+    : defaultDiagnosticMessageTable[id]
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 type report<stream extends TokenStreamKind, messageId extends MessageIdKind, range extends RangeKind, data = {}> =
-    pushDiagnostic<stream, UnitsDiagnostic<stream["context"]["diagnosticMessageTable"][messageId], range, data>>
+    pushDiagnostic<
+        stream,
+        UnitsDiagnostic<
+            getMessageOrDefault<stream["context"]["diagnosticMessageTable"], messageId>,
+            range,
+            data
+        >
+    >
+
+interface EvaluatorKind {
+    stream: TokenStreamKind
+    range: RangeKind
+    idToKnownDescendants: { [id: string]: string }
+}
+
+type mergeMap<map1, map2> = {
+    [k in keyof map1 | keyof map2]:
+    k extends keyof map1
+    ? (k extends keyof map2 ? map1[k] | map2[k] : map1[k])
+    : map2[cast<keyof map2, k>]
+}
+type getOrUndefined<map, key> = key extends keyof map ? map[key] : undefined
+type getOrNever<map, key> = key extends keyof map ? map[key] : never
+
+type addDependency<evaluator extends EvaluatorKind, childId extends string, parentId extends string> = kind<EvaluatorKind, {
+    stream: evaluator["stream"]
+    range: evaluator["range"]
+    idToKnownDescendants: mergeMap<evaluator["idToKnownDescendants"], {
+        [k in parentId]: childId | getOrNever<evaluator["idToKnownDescendants"], childId>
+    }>
+}>
+
+type mulDimensions<expression extends UnitExpressionKind, exponent extends IntegerKind> = cast<UnitExpressionKind, {
+    [index in keyof expression]:
+    expression[index] extends kind<UnitSimpleAliasKind, infer alias>
+    ? kind<UnitTermKind, [alias, exponent]>
+    : (
+        expression[index] extends kind<UnitExponentTermKind, infer term>
+        ? kind<UnitTermKind, [term[0], Z.mul<term[1], exponent>]>
+        : unreachable
+    )
+}>
+
+type takeTermOrUndefined<expression extends UnitExpressionKind> =
+    expression extends [kind<UnitSimpleAliasKind, infer alias>, ...infer restExpression]
+    ? [alias, Int<1>, restExpression]
+    : (
+        expression extends [kind<UnitExponentTermKind, infer term>, ...infer restExpression]
+        ? [term[0], term[1], restExpression]
+        : (
+            expression extends []
+            ? undefined
+            : unreachable
+        )
+    )
+
+type evaluate<evaluator extends EvaluatorKind, expression extends UnitExpressionKind, result extends UnitsRepresentationKind> =
+
+    // 式の先頭の項 ( 単位名と指数 ) を取り出す
+    takeTermOrUndefined<expression> extends [kind<string, infer id>, kind<IntegerKind, infer exponent>, kind<UnitExpressionKind, infer restExpression>]
+    ? (
+        // 循環参照エラー
+        id extends getOrUndefined<evaluator["idToKnownDescendants"], id>
+        ? [report<evaluator["stream"], "Units_include_circular_references", evaluator["range"], { id: id }>, result]
+
+        : (
+            // 単位名に束縛された式を取り出す
+            getOrUndefined<evaluator["stream"]["context"]["unitSystem"], id> extends infer body
+            ? (
+                // 式は定義だったので戻り値に追加して続ける
+                // ( 単位系に未登録の名前は定義とする )
+                body extends UnitDefinitionKind | undefined
+                ? evaluate<evaluator, restExpression, mul<{ [k in id]: exponent }, result>>
+
+                : (
+                    // 式は名前だったので式を書き換えて続ける
+                    // 例: `m = metre`
+                    body extends UnitSimpleAliasKind
+                    ? evaluate<addDependency<evaluator, id, body>, [[body, exponent], ...restExpression], result>
+
+                    : (
+                        // 式は複雑な式だったので式を書き換えて続ける
+                        // 例: `W = kg m^2 s^−3`
+                        body extends UnitExpressionKind
+                        ? evaluate<addDependency<evaluator, id, body[number][0]>, [...mulDimensions<body, exponent>, ...restExpression], result>
+
+                        // 不明な単位式 ( 内部エラー )
+                        : [report<evaluator["stream"], "internal_error", evaluator["range"], "unknown unit spec">, result]
+                    )
+                )
+            )
+            : unreachable
+        )
+    )
+
+    // 全ての項を変換できたので終わり
+    : [evaluator["stream"], result]
+
+type resolveId<stream extends TokenStreamKind, id extends string, range extends RangeKind, exponent extends IntegerKind> =
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    evaluate<{ stream: stream, range: range, idToKnownDescendants: {} }, [[id, exponent]], DimensionlessUnits>
 
 type anyTokenAsId<token extends TokenKind> = {
     "Id": token extends IdToken<infer id, infer _range> ? id : unreachable
@@ -66,7 +189,7 @@ type anyTokenAsId<token extends TokenKind> = {
 }[token["tag"]]
 
 type takeAnyTokenAsTermOrUndefined<stream extends TokenStreamKind, sentinelTag extends TokenKind["tag"]> =
-    takeOrUndefined<stream> extends [infer stream2, kind<TokenKind, infer token>]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream2>, kind<TokenKind, infer token>]
     ? (
         token["tag"] extends sentinelTag
 
@@ -74,7 +197,12 @@ type takeAnyTokenAsTermOrUndefined<stream extends TokenStreamKind, sentinelTag e
         ? undefined
 
         // !sentinel . => { id: 1 }
-        : [stream2, token, { [k in anyTokenAsId<token>]: Int<1> }]
+        : (
+            resolveId<stream2, anyTokenAsId<token>, token["range"], Int<1>> extends [infer stream3, infer term]
+            ? [stream3, token, term]
+            : unreachable
+        )
+
     )
     // $
     : undefined
@@ -82,10 +210,10 @@ type takeAnyTokenAsTermOrUndefined<stream extends TokenStreamKind, sentinelTag e
 /** integer = Minus? Natural */
 type parseInteger<stream extends TokenStreamKind> =
     // Minus
-    takeTokenValueOrUndefined<"-", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream>, SymbolToken<"-", RangeKind>]
     ? (
         // Minus Natural
-        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, kind<NaturalKind, infer natural>]
+        takeOrUndefined<stream> extends [infer stream, NaturalToken<infer natural, RangeKind>]
         ? [stream, Integer<minusSign, natural>]
 
         // Minus !Natural => -1
@@ -93,7 +221,7 @@ type parseInteger<stream extends TokenStreamKind> =
     )
     : (
         // Natural
-        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, kind<NaturalKind, infer natural>]
+        takeOrUndefined<stream> extends [infer stream, NaturalToken<infer natural, RangeKind>]
         ? [stream, Integer<plusSign, natural>]
 
         // !Natural => 1
@@ -102,13 +230,13 @@ type parseInteger<stream extends TokenStreamKind> =
 
 /** ascii-exponent = Circumflex integer)` */
 type parseAsciiExponent<stream extends TokenStreamKind> =
-    takeTokenValueOrUndefined<"^", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream>, SymbolToken<"^", RangeKind>]
 
     // Circumflex
     ? parseInteger<stream>
 
     // !Circumflex => 1
-    : [report<stream, "Circumflex_is_required", missingTokenRange<stream>>, Int<1>]
+    : [report<stream, "Exponent_symbol_is_required", missingTokenRange<stream>>, Int<1>]
 
 type isAsciiExponentStart<stream extends TokenStreamKind> =
     currentTokenKindIs<"^", stream>
@@ -122,23 +250,23 @@ type isExponentStart<stream extends TokenStreamKind> =
 
 /** term = 1 | Id exponent? */
 type parseTerm<stream extends TokenStreamKind> =
-    takeTokenValueOrUndefined<"Id", stream> extends [kind<TokenStreamKind, infer stream>, kind<string, infer id>]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream>, kind<IdTokenKind, infer idToken>]
     ? (
         isExponentStart<stream> extends true
 
         // id exponent
         ? (
             parseExponent<stream> extends [kind<TokenStreamKind, infer stream>, kind<IntegerKind, infer exponent>]
-            ? [stream, { [k in id]: exponent }]
+            ? resolveId<stream, idToken["value"], idToken["range"], exponent>
             : unreachable
         )
 
         // id !exponent
-        : [stream, { [k in id]: Int<1> }]
+        : resolveId<stream, idToken["value"], idToken["range"], Int<1>>
     )
 
     : (
-        takeTokenValueOrUndefined<"Natural", stream> extends [infer stream, Nat<1>]
+        takeOrUndefined<stream> extends [infer stream, NaturalToken<Nat<1>, RangeKind>]
 
         // 1 => {}
         ? [stream, DimensionlessUnits]
@@ -151,14 +279,14 @@ type isTermStart<stream extends TokenStreamKind> =
     currentTokenKindIs<"Id", stream> extends true
     ? true
     : (
-        takeTokenValueOrUndefined<"Natural", stream> extends [infer _stream, Nat<1>]
+        takeOrUndefined<stream> extends [TokenStreamKind, NaturalToken<Nat<1>, RangeKind>]
         ? true
         : false
     )
 
 /** tail-term = Asterisk? term */
 type parseTailTerm<stream extends TokenStreamKind> =
-    takeTokenValueOrUndefined<"*", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream>, SymbolToken<"*", RangeKind>]
 
     // Asterisk
     ? parseTerm<stream>
@@ -205,7 +333,7 @@ type parseTerms1<stream extends TokenStreamKind, sentinelTag extends TokenKind["
 
 /** single-fraction-tail = Slash terms1 */
 type parseSingleFractionTail<stream extends TokenStreamKind> =
-    takeTokenValueOrUndefined<"/", stream> extends [kind<TokenStreamKind, infer stream>, infer _]
+    takeOrUndefined<stream> extends [kind<TokenStreamKind, infer stream>, SymbolToken<"/", RangeKind>]
 
     // Slash terms1
     ? parseTerms1<stream, never>

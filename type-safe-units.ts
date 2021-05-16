@@ -1,3 +1,4 @@
+// spell-checker: ignore milli
 import { identity, Identity, kind } from "./type-level/types"
 import { ParserContextKind, unitOrFailure as parseUnitOrFailure, unitOrNever as parseUnitOrNever } from "./type-level/units/parser"
 import { UnitsRepresentationKind } from "./type-level/units/representation"
@@ -10,16 +11,29 @@ export type DimensionlessUnits = kind<UnitsKind, {}>
 export type UnitsViewKind = string
 export type UnitsKind = UnitsRepresentationKind
 
-export interface DefaultDiagnosticMessageTable {
-    Number_is_required: "Number is required."
-    Circumflex_is_required: "Circumflex ( ^ ) is required."
-    Unit_name_or_1_is_required: "Unit name or 1 ( for dimensionless ) is required."
-    Unexpected_token__Unit_name_or_1_is_required: "Unexpected token. Unit name or 1 is required."
-    Fraction_symbol_required: "Fraction symbol ( / ) required."
-    End_of_source_is_required: "End of source is required."
+
+export type DefaultUnitSystem = {
+    // SI 基本単位
+    "SI.metre": null
+    m: "SI.metre"
+    metre: "SI.metre"
+
+    "SI.second": null
+    s: "SI.second"
+    second: "SI.second"
+
+    "SI.kilogram": null
+    kg: "SI.kilogram"
+    kilogram: "SI.kilogram"
+
+    // SI 接頭辞
+    "SI.milli": null
+    milli: "SI.milli"
 }
 export interface DefaultParserContext extends ParserContextKind {
-    diagnosticMessageTable: DefaultDiagnosticMessageTable
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    diagnosticMessageTable: {}
+    unitSystem: DefaultUnitSystem
 }
 
 export type Unit<TView extends UnitsViewKind, TContext extends ParserContextKind = DefaultParserContext> = parseUnitOrFailure<TView, TContext>
@@ -38,13 +52,22 @@ export const unitOrNever = <TView extends UnitsViewKind, TContext extends Parser
 
 type checkedViewOrFailure<view extends UnitsViewKind, context extends ParserContextKind> = parseUnitOrFailure<view, context> extends kind<FailureKind, infer failure> ? failure : view
 
+/**
+ * 単位文字列型を単位付き数値型に変換する。
+ * 変換に失敗した場合は診断メッセージを含む `Failure` 型を返す
+ */
 export type Measure<TView extends UnitsViewKind, TContext extends ParserContextKind = DefaultParserContext> =
     parseUnitOrFailure<TView, TContext> extends kind<FailureKind, infer failure>
     ? failure
     : NumberWith<parseUnitOrNever<TView, TContext>>
 
 export const numberWith = <TUnit extends UnitsKind>(value: number, _units: Identity<TUnit>) => value as unknown as NumberWith<TUnit>
+/**
+ * 数値と単位文字列を単位付き数値に変換する
+ */
 export const measure = <TView extends UnitsViewKind, TContext extends ParserContextKind = DefaultParserContext>(value: number, _unitsView: checkedViewOrFailure<TView, TContext>, _context: Identity<TContext> = identity) => value as unknown as NumberWith<parseUnitOrNever<TView, TContext>>
+export type BindMeasureContext<TContext extends ParserContextKind = DefaultParserContext> =
+    <TView extends UnitsViewKind>(value: number, _unitsView: checkedViewOrFailure<TView, TContext>, _context?: Identity<TContext>) => NumberWith<parseUnitOrNever<TView, TContext>>
 export const withoutMeasure = <TUnits extends UnitsKind>(value: NumberWith<TUnits>) => value as unknown as number
 export const measure1 = (value: number) => value as unknown as NumberWith<DimensionlessUnits>
 
