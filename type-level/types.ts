@@ -37,3 +37,10 @@ export type equals<T, S> = [T] extends [S] ? ([S] extends [T] ? true : false) : 
 /** 不変な T を持ち運ぶオブジェクト */
 export type Identity<T> = (x: T) => T
 export const identity = <T>(x: T) => x
+
+export type overwrite<Base, Super> = {
+    [k in (keyof Base | keyof Super)]:
+    k extends keyof Super ? Super[k]
+    : k extends keyof Base ? Base[k]
+    : never
+}
